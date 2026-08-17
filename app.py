@@ -104,30 +104,48 @@ def main() -> None:
     st.sidebar.info("Free cloud mode uses gTTS. Run the Docker backend for advanced cloning.")
 
     clone_tab, tts_tab, backend_tab = st.tabs(
-        [":studio_microphone: Voice Workflow", ":speaking_head: Text-to-Speech", ":rocket: Advanced Backend"]
+        [":musical_note: Song to Voice", ":speaking_head: Text-to-Speech", ":rocket: Advanced Backend"]
     )
 
     with clone_tab:
-        st.markdown("### Authorized Reference Voice Workflow")
+        st.markdown("### Put Song Lyrics Into an Authorized Voice")
         st.info(
-            "This free-hosted app accepts authorized reference uploads and permission confirmation. "
+            "Upload the song, upload the authorized voice, and paste the lyrics for a free preview. "
             "Realistic cloning runs from the heavier backend because free Streamlit hosting is too small "
             "for multi-GB voice models."
         )
 
         col1, col2 = st.columns([2, 1])
         with col1:
-            ref_audio = st.file_uploader(
-                "Upload authorized reference audio",
+            song_audio = st.file_uploader(
+                "1. Upload the song",
                 type=["wav", "mp3", "m4a", "flac"],
+                key="cloud_song_audio",
             )
+            if song_audio is not None:
+                st.success(f"Song uploaded: {song_audio.name}")
+                st.audio(song_audio)
+            with st.expander("Which song upload is best?"):
+                st.write("WAV or FLAC is cleanest. MP3 uploads faster but loses some detail. M4A is supported but may process more slowly.")
+
+            ref_audio = st.file_uploader(
+                "2. Upload the authorized voice to clone",
+                type=["wav", "mp3", "m4a", "flac"],
+                key="cloud_voice_audio",
+            )
+            if ref_audio is not None:
+                st.success(f"Voice uploaded: {ref_audio.name}")
+                st.audio(ref_audio)
+            with st.expander("Which voice upload is best?"):
+                st.write("A clean WAV or FLAC recording with one speaker and little background music gives the best result. Compression, effects, and multiple speakers reduce similarity.")
             ref_text = st.text_input(
-                "Reference transcript",
+                "3. Reference transcript",
                 value="This is my authorized reference voice sample",
             )
             target_text = st.text_area(
-                "Target text",
-                value="This is a generated vocal take from AI Vocals Studio",
+                "4. Paste the song lyrics",
+                placeholder="Paste the lyrics from the uploaded song here...",
+                height=150,
             )
             voice_label = st.text_input("Voice label", value="Authorized_Voice")
 
@@ -143,15 +161,19 @@ def main() -> None:
                 st.success(f"Uploaded: {ref_audio.name}")
                 audio_player(saved)
 
-            if st.button("Generate Free Preview", type="primary", use_container_width=True):
+            if st.button("Create Free Lyrics Preview", type="primary", use_container_width=True):
                 if not has_permission:
                     st.error("Confirm permission before generating audio.")
+                elif not song_audio:
+                    st.error("Upload the song first.")
+                elif not ref_audio:
+                    st.error("Upload the authorized voice first.")
                 elif not target_text.strip():
-                    st.error("Enter target text first.")
+                    st.error("Paste the song lyrics first.")
                 else:
                     output_path = OUT / f"preview_{int(time.time())}.mp3"
                     gTTS(text=target_text, lang="en").save(str(output_path))
-                    st.success("Preview generated with the free cloud engine.")
+                    st.success("Free generic-voice preview generated. Use the advanced backend to create the final take with the authorized cloned voice.")
                     audio_player(output_path)
 
     with tts_tab:
