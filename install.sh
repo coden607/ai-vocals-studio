@@ -28,7 +28,7 @@ pip install --upgrade pip
 echo "🔧 Installing dependencies..."
 echo "This may take a few minutes..."
 
-pip install gtts demucs so-vits-svc-fork librosa numpy soundfile pydub
+pip install gtts demucs so-vits-svc-fork librosa numpy soundfile pydub qwen-tts
 
 # Create desktop entry for easy launch
 echo "🖥️ Creating desktop launcher..."

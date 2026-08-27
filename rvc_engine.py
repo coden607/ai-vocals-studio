@@ -74,10 +74,16 @@ class RvcEngine:
 
     # ── Model discovery ──────────────────────────────────────────
 
+    def _model_dir(self, model_name: str) -> Optional[Path]:
+        """Return the model directory for flat or saved voice profiles."""
+        candidates = [self.MODELS / model_name,
+                      self.MODELS / 'voices' / model_name]
+        return next((path for path in candidates if path.is_dir()), None)
+
     def _find_pth(self, model_name: str) -> Optional[Path]:
         """Find the RVC .pth file for a model. Prefers rvc_model.pth."""
-        model_dir = self.MODELS / model_name
-        if not model_dir.is_dir():
+        model_dir = self._model_dir(model_name)
+        if model_dir is None:
             return None
         # Prefer explicit rvc_model.pth
         rvc_pth = model_dir / 'rvc_model.pth'
@@ -94,8 +100,8 @@ class RvcEngine:
 
     def _find_index(self, model_name: str) -> Optional[Path]:
         """Find the .index file for retrieval (optional, improves quality)."""
-        model_dir = self.MODELS / model_name
-        if not model_dir.is_dir():
+        model_dir = self._model_dir(model_name)
+        if model_dir is None:
             return None
         indices = [
             p for p in model_dir.glob('*.index')

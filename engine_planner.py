@@ -224,9 +224,13 @@ def choose_best_plan(
     if mode in {"song", "clip"} and target_has_voice:
         order = ["RVC", "WORLD/DSP"]
     elif mode == "bed":
-        order = ["ElevenLabs", "Qwen3-TTS", "XTTS v2", "WORLD/DSP"]
+        order = ["Qwen3-TTS", "XTTS v2", "WORLD/DSP"]
+        if os.environ.get("ALLOW_PAID_ENGINES", "").lower() in {"1", "true", "yes"}:
+            order.insert(0, "ElevenLabs")
     else:
-        order = ["Qwen3-TTS", "ElevenLabs", "XTTS v2", "WORLD/DSP"]
+        order = ["Qwen3-TTS", "XTTS v2", "WORLD/DSP"]
+        if os.environ.get("ALLOW_PAID_ENGINES", "").lower() in {"1", "true", "yes"}:
+            order.insert(1, "ElevenLabs")
 
     chosen = next((by_name[name] for name in order if by_name.get(name, {}).get("available")), by_name["WORLD/DSP"])
     backend_score = float(chosen.get("score", 50))

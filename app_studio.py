@@ -860,6 +860,8 @@ class StudioPro:
         ar.pack(fill='x', pady=6)
         entry(ar, self.audio_path_var, width=46)
         NeonBtn(ar,'BROWSE',cmd=self._sel_audio, color=C['cyan'],w=115,h=38).pack(side='right',padx=(10,0))
+        NeonBtn(ar,'⚡ REPLACE SONG VOCALS',cmd=self._replace_song,
+            color=C['green'],w=220,h=38).pack(side='right',padx=(10,0))
         self._audio_wave = Waveform(ac, w=640, h=90)
         self._audio_wave.pack(fill='x', pady=8)
 
@@ -916,6 +918,10 @@ class StudioPro:
         gr.pack(pady=12)
         NeonBtn(gr,'⚡   GENERATE VOCALS',cmd=self._generate,
                 color=C['green'],w=280,h=58,font=FONT['h2']).pack(side='left',padx=12)
+        NeonBtn(gr,'🎤  CLONE OVER BEAT',cmd=self._generate_over_beat,
+            color=C['cyan'],w=220,h=58,font=FONT['h3']).pack(side='left',padx=12)
+        NeonBtn(gr,'⚡  QUICK CLONE + BEAT',cmd=self._quick_clone_over_beat,
+            color=C['gold'],w=235,h=58,font=FONT['h3']).pack(side='left',padx=12)
         NeonBtn(gr,'🔄  CLEAR LOG',cmd=lambda:self._out_log.delete('1.0','end'),
                 color=C['dim'],w=150,h=58).pack(side='left')
 
@@ -953,6 +959,7 @@ class StudioPro:
         NeonBtn(cr,'🔄  REFRESH',      cmd=self._refresh_models,    color=C['purple'],  w=150,h=42).pack(side='left',padx=(0,10))
         NeonBtn(cr,'📥  IMPORT .PTH',  cmd=self._import_model_file, color=C['orange'],  w=165,h=42).pack(side='left',padx=(0,10))
         NeonBtn(cr,'📂  IMPORT FOLDER',cmd=self._import_model_folder,color=C['orange'], w=185,h=42).pack(side='left',padx=(0,10))
+        NeonBtn(cr,'🎤  CREATE VOICE', cmd=self._create_voice_profile, color=C['green'], w=175,h=42).pack(side='left',padx=(0,10))
         NeonBtn(cr,'📁  OPEN DIR',     cmd=lambda:self._open_dir(self.MODELS), color=C['dim'], w=140,h=42).pack(side='left')
 
         self._model_cards_host = tk.Frame(f, bg=C['bg'])
@@ -979,8 +986,8 @@ class StudioPro:
         ic = mk_card(f, C['cyan'])
         ir = tk.Frame(ic, bg=C['card2'])
         ir.pack(fill='x', pady=8)
-        NeonBtn(ir,'🎵  CLIP',          cmd=self._import_clip,       color=C['cyan'],  w=120,h=40).pack(side='left',padx=(0,10))
-        NeonBtn(ir,'📂  FOLDER',        cmd=self._import_ds_folder,  color=C['cyan'],  w=135,h=40).pack(side='left',padx=(0,10))
+        NeonBtn(ir,'🎵  CLIP → VOCALS', cmd=self._import_clip,       color=C['cyan'],  w=170,h=40).pack(side='left',padx=(0,10))
+        NeonBtn(ir,'📂  FOLDER → VOCALS',cmd=self._import_ds_folder,  color=C['cyan'],  w=190,h=40).pack(side='left',padx=(0,10))
         NeonBtn(ir,'📁  OPEN',          cmd=self._open_ds_folder,    color=C['dim'],   w=110,h=40).pack(side='left')
 
         SectionHdr(f,'DATASET FILES', C['green'])
@@ -1004,6 +1011,8 @@ class StudioPro:
         self._stop_btn.pack(side='left', padx=(0,10))
         NeonBtn(tr,'☁️  CLOUD TRAIN', cmd=self._cloud_train,
                 color=C['cyan'], w=190, h=44).pack(side='left', padx=(0,10))
+        NeonBtn(tr,'⚡  ONE-CLICK TRAIN', cmd=self._quick_cloud_train,
+            color=C['green'], w=205, h=44).pack(side='left', padx=(0,10))
         NeonBtn(tr,'📥  INSTALL MODEL', cmd=self._install_model,
                 color=C['green'], w=200, h=44).pack(side='left')
         tk.Label(tc,
@@ -1098,17 +1107,70 @@ class StudioPro:
             self._audio_wave.load(p)
             self._log(f'📂 Loaded: {Path(p).name}')
 
+    def _replace_song(self):
+        """Replace a song's vocals with the selected trained clone."""
+        song = self.audio_path_var.get().strip()
+        name = self.model_var.get().strip()
+        profile_path = self.MODELS / 'voices' / name / 'voice_profile.json'
+        if not song or not Path(song).exists():
+            messagebox.showwarning('No Song', 'Select a song first.')
+            return
+        if not name or not profile_path.exists():
+            messagebox.showwarning(
+                'No Saved Clone',
+                'Select a saved voice clone from the model list first.')
+            return
+        if not self._rvc_engine.can_infer(name):
+            messagebox.showerror(
+                'RVC Model Required',
+                'Indistinguishable song replacement requires a trained RVC model '
+                'for this voice. Import or train one, then try again.')
+            return
+        threading.Thread(target=self._replace_song_worker,
+                         args=(song, name, profile_path), daemon=True).start()
+
+    def _replace_song_worker(self, song, name, profile_path):
+        if self._generating:
+            self._log('⚠ Already generating...')
+            return
+        self._generating = True
+        try:
+            from song_converter import change_song
+            with open(profile_path) as handle:
+                profile = json.load(handle)
+            profile['voice_dir'] = str(profile_path.parent)
+            out_dir = self.OUTPUT / name / 'song_replacements' / time.strftime('%Y%m%d_%H%M%S')
+            self._badge('ENGINE: 🎵 Demucs + RVC', C['green'])
+            self._log(f'⚡ Replacing vocals in: {Path(song).name}')
+            output, steps = change_song(
+                song, profile, out_dir, progress_cb=self._prog,
+                separation='demucs', require_neural=True)
+            self.last_output = Path(output)
+            self._log(f'✅ Song replacement complete: {output}')
+            self.root.after(0, lambda: self._out_wave.load(self.last_output))
+            self.root.after(0, lambda: messagebox.showinfo(
+                'Song Ready', f'Converted song saved to:\n{output}'))
+            self._prog(f"✅ COMPLETE ({steps.get('conversion', 'RVC')})", 100)
+        except Exception as exc:
+            self._prog('❌ Song replacement failed', 0)
+            self._log(f'❌ {exc}')
+            self.root.after(0, lambda e=str(exc): messagebox.showerror(
+                'Song Replacement Failed', e))
+        finally:
+            self._generating = False
+
     def _on_model_sel(self, _=None):
         name = self.model_var.get()
         if not name: return
         pp = self.MODELS/name/'voice_profile.json'
+        saved_voice_profile = self.MODELS/'voices'/name/'voice_profile.json'
         # SO-VITS status prefix
         svc_badge = ''
         if self._engine:
             svc_badge = status_label(self._engine.model_status(name)) + '  |  '
 
-        if pp.exists():
-            with open(pp) as f: p=json.load(f)
+        if pp.exists() or saved_voice_profile.exists():
+            with open(pp if pp.exists() else saved_voice_profile) as f: p=json.load(f)
             self._model_info.config(
                 text=svc_badge + f"Pitch: {p.get('avg_pitch',0):.0f}Hz  |  Tempo: {p.get('avg_tempo',0):.0f}BPM  |  Clips: {p.get('total_files',0)}",
                 fg=C['cyan'])
@@ -1206,6 +1268,184 @@ class StudioPro:
             messagebox.showwarning('No Model','Select a voice model.'); return
         threading.Thread(target=self._gen_worker, daemon=True).start()
 
+    def _generate_over_beat(self):
+        """Generate the selected text in the clone and mix it over the beat."""
+        beat = self.audio_path_var.get().strip()
+        name = self.model_var.get().strip()
+        text = self._text_box.get('1.0', 'end-1c').strip()
+        if not beat or not Path(beat).exists():
+            messagebox.showwarning('No Beat', 'Select the beat in Audio Input first.')
+            return
+        if not name:
+            messagebox.showwarning('No Voice', 'Select a voice model first.')
+            return
+        if not text or text == 'Enter lyrics or speech text here...':
+            messagebox.showwarning('No Text', 'Enter lyrics or speech text first.')
+            return
+        threading.Thread(target=self._beat_worker,
+                         args=(beat, name, text), daemon=True).start()
+
+    def _quick_clone_over_beat(self):
+        """Create a voice from source audio and place generated vocals on a beat."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title('Quick Clone + Beat')
+        dlg.configure(bg=C['bg2'])
+        dlg.geometry('680x440')
+        dlg.transient(self.root)
+        dlg.grab_set()
+        name_var = tk.StringVar()
+        source_var = tk.StringVar()
+        beat_var = tk.StringVar()
+        type_var = tk.StringVar(value='speech')
+        permission_var = tk.BooleanVar(value=False)
+        fields = tk.Frame(dlg, bg=C['bg2'])
+        fields.pack(fill='x', padx=24, pady=12)
+        for row, label, variable in ((0, 'Voice name', name_var),
+                                     (1, 'Voice source', source_var),
+                                     (2, 'Beat/song', beat_var)):
+            tk.Label(fields, text=label, fg=C['white'], bg=C['bg2'],
+                     font=FONT['body']).grid(row=row, column=0, sticky='w', pady=7)
+            tk.Entry(fields, textvariable=variable, bg=C['bg3'], fg=C['white'],
+                     insertbackground=C['cyan'], relief='flat', width=46).grid(
+                         row=row, column=1, padx=10, sticky='ew')
+
+        def browse(variable, title):
+            path = filedialog.askopenfilename(
+                title=title,
+                filetypes=[('Audio', '*.wav *.mp3 *.flac *.m4a *.ogg'),
+                           ('All', '*.*')], parent=dlg)
+            if path:
+                variable.set(path)
+                if variable is source_var and not name_var.get().strip():
+                    name_var.set(Path(path).stem.replace(' ', '_'))
+
+        NeonBtn(fields, 'BROWSE', cmd=lambda: browse(source_var, 'Choose voice source'),
+                color=C['cyan'], w=110, h=30).grid(row=1, column=2)
+        NeonBtn(fields, 'BROWSE', cmd=lambda: browse(beat_var, 'Choose beat/song'),
+                color=C['cyan'], w=110, h=30).grid(row=2, column=2)
+        tk.Label(dlg, text='Lyrics or text to perform', fg=C['white'],
+                 bg=C['bg2'], font=FONT['body']).pack(anchor='w', padx=24)
+        lyrics = textbox(dlg, height=5)
+        lyrics.pack(fill='x', padx=24, pady=6)
+        lyrics.insert('1.0', 'Enter lyrics or speech text here...')
+        lyrics.bind('<FocusIn>', lambda _:
+                    lyrics.delete('1.0', 'end') if lyrics.get(
+                        '1.0', 'end-1c') == 'Enter lyrics or speech text here...' else None)
+        options = tk.Frame(dlg, bg=C['bg2'])
+        options.pack(fill='x', padx=24)
+        tk.Label(options, text='Source type:', fg=C['gray'], bg=C['bg2'],
+                 font=FONT['sm']).pack(side='left')
+        for value, label in [('speech', 'Speech'), ('song', 'Song')]:
+            tk.Radiobutton(options, text=label, variable=type_var, value=value,
+                           fg=C['cyan'], bg=C['bg2'], selectcolor=C['bg3'],
+                           activebackground=C['bg2'], font=FONT['sm']).pack(side='left', padx=8)
+        tk.Checkbutton(
+            dlg, text='I own this voice or have explicit permission to clone it',
+            variable=permission_var, fg=C['orange'], bg=C['bg2'],
+            selectcolor=C['bg3'], activebackground=C['bg2'],
+            activeforeground=C['white'], font=FONT['sm']).pack(pady=8)
+
+        def start():
+            text = lyrics.get('1.0', 'end-1c').strip()
+            if (not name_var.get().strip() or not Path(source_var.get()).exists()
+                    or not Path(beat_var.get()).exists() or not text
+                    or text == 'Enter lyrics or speech text here...'):
+                messagebox.showwarning('Missing Information',
+                                       'Provide a name, source, beat, and lyrics.', parent=dlg)
+                return
+            if not permission_var.get():
+                messagebox.showwarning('Permission Required',
+                                       'Confirm authorization to clone this voice.', parent=dlg)
+                return
+            dlg.destroy()
+            threading.Thread(target=self._quick_clone_worker, args=(
+                name_var.get().strip(), source_var.get(), beat_var.get(),
+                text, type_var.get()), daemon=True).start()
+
+        NeonBtn(dlg, 'CREATE + MIX', cmd=start, color=C['gold'],
+                w=180, h=40).pack(side='left', padx=(180, 8), pady=8)
+        NeonBtn(dlg, 'CANCEL', cmd=dlg.destroy, color=C['red'],
+                w=100, h=40).pack(side='left', pady=8)
+
+    def _quick_clone_worker(self, name, source, beat, text, source_type):
+        """Build a clean profile, synthesize it, and mix it over the target beat."""
+        if self._generating:
+            self._log('⚠ Already generating...')
+            return
+        self._generating = True
+        temp_voice = None
+        try:
+            from voice_cloner import build_voice_profile
+            self._badge('ENGINE: 🎚 Demucs + Qwen3-TTS', C['green'])
+            profile = build_voice_profile(
+                name, source, source_type=source_type,
+                voices_dir=self.MODELS / 'voices', progress_cb=self._prog,
+                has_permission=True)
+            if not profile:
+                raise RuntimeError('Could not create a voice profile.')
+            temp_voice = self._synth_text(text, name, self._mood_var.get())
+            instrumental = AudioSegment.from_file(beat)
+            mixed = instrumental.overlay(AudioSegment.from_file(temp_voice))
+            out_dir = self.OUTPUT / name
+            out_dir.mkdir(parents=True, exist_ok=True)
+            output = out_dir / f'{Path(beat).stem}_{name}_quick_clone.wav'
+            mixed.export(str(output), format='wav')
+            self.last_output = output
+            self.root.after(0, self._refresh_models)
+            self.root.after(0, lambda: self._out_wave.load(output))
+            self._prog('✅ QUICK CLONE + BEAT COMPLETE', 100)
+            self._log(f'✅ Saved: {output}')
+            self.root.after(0, lambda: messagebox.showinfo(
+                'Beat Ready', f'Cloned vocal mixed over beat:\n{output}'))
+        except Exception as exc:
+            self._prog('❌ Quick clone failed', 0)
+            self._log(f'❌ {exc}')
+            self.root.after(0, lambda e=str(exc): messagebox.showerror(
+                'Quick Clone Failed', e))
+        finally:
+            if temp_voice and os.path.exists(temp_voice):
+                try:
+                    os.unlink(temp_voice)
+                except OSError:
+                    pass
+            self._generating = False
+
+    def _beat_worker(self, beat, name, text):
+        if self._generating:
+            self._log('⚠ Already generating...')
+            return
+        self._generating = True
+        temp_voice = None
+        try:
+            self._badge('ENGINE: 🧠 Clone + Beat Mix', C['green'])
+            self._prog('🧠 Generating cloned vocal…', 10)
+            temp_voice = self._synth_text(text, name, self._mood_var.get())
+            vocal = AudioSegment.from_file(temp_voice)
+            instrumental = AudioSegment.from_file(beat)
+            mixed = instrumental.overlay(vocal)
+            out_dir = self.OUTPUT / name
+            out_dir.mkdir(parents=True, exist_ok=True)
+            output = out_dir / f'{Path(beat).stem}_{name}_clone.wav'
+            mixed.export(str(output), format='wav')
+            self.last_output = output
+            self._prog('✅ CLONE OVER BEAT COMPLETE', 100)
+            self._log(f'✅ Beat mix saved: {output}')
+            self.root.after(0, lambda: self._out_wave.load(output))
+            self.root.after(0, lambda: messagebox.showinfo(
+                'Beat Ready', f'Cloned vocal mixed over beat:\n{output}'))
+        except Exception as exc:
+            self._prog('❌ Beat mix failed', 0)
+            self._log(f'❌ {exc}')
+            self.root.after(0, lambda e=str(exc): messagebox.showerror(
+                'Beat Mix Failed', e))
+        finally:
+            if temp_voice and os.path.exists(temp_voice):
+                try:
+                    os.unlink(temp_voice)
+                except OSError:
+                    pass
+            self._generating = False
+
     def _gen_worker(self):
         self._generating=True; tmp=None
         try:
@@ -1250,6 +1490,13 @@ class StudioPro:
                 if not ok:
                     raise RuntimeError(f'SO-VITS: {err}')
             else:
+                saved_voice = self.MODELS/'voices'/name/'voice_profile.json'
+                if saved_voice.exists():
+                    raise RuntimeError(
+                        'Audio-to-audio cloning needs a trained RVC or SO-VITS model. '
+                        'This voice has a neural TTS reference only; use Text mode or '
+                        'train/import an authorized RVC model.'
+                    )
                 # ── DSP fallback ───────────────────────────────────
                 self._log('🟡 DSP fallback (no trained model)')
                 self._badge('ENGINE: 🎛️ DSP Fallback', C['orange'])
@@ -1309,18 +1556,19 @@ class StudioPro:
         """
         base_dir = str(self.MODELS.parent.resolve())
 
-        # ── 1. ElevenLabs (best quality, requires API key) ────────
-        try:
-            from elevenlabs_engine import ElevenLabsEngine
-            el = ElevenLabsEngine(base_dir)
-            if el.can_synthesize():
-                self._badge('ENGINE: ⚡ ElevenLabs', C['gold'])
-                self._prog('⚡ ElevenLabs synthesizing…', 15)
-                out = el.synthesize(text, model_name, mood=mood, progress_cb=self._prog)
-                self._log(f'⚡ ElevenLabs done: {len(text)} chars, mood={mood}')
-                return str(out)
-        except Exception as e:
-            self._log(f'ℹ️ ElevenLabs: {type(e).__name__}: {e}')
+        # Paid services stay opt-in; the default route is fully local/free.
+        if os.environ.get('ALLOW_PAID_ENGINES', '').lower() in ('1', 'true', 'yes'):
+            try:
+                from elevenlabs_engine import ElevenLabsEngine
+                el = ElevenLabsEngine(base_dir)
+                if el.can_synthesize():
+                    self._badge('ENGINE: ⚡ ElevenLabs', C['gold'])
+                    self._prog('⚡ ElevenLabs synthesizing…', 15)
+                    out = el.synthesize(text, model_name, mood=mood, progress_cb=self._prog)
+                    self._log(f'⚡ ElevenLabs done: {len(text)} chars, mood={mood}')
+                    return str(out)
+            except Exception as e:
+                self._log(f'ℹ️ ElevenLabs: {type(e).__name__}: {e}')
 
         # ── 2. Qwen3-TTS (real neural clone — installed, local) ───
         try:
@@ -1479,6 +1727,14 @@ class StudioPro:
                 for sub in item.iterdir():
                     if sub.suffix=='.pth':
                         models.append(item.name); break
+        # Saved neural clones are profiles, not training checkpoints.
+        voices_dir = self.MODELS/'voices'
+        if voices_dir.is_dir():
+            models.extend(
+                voice.name for voice in sorted(voices_dir.iterdir())
+                if voice.is_dir() and (voice/'voice_profile.json').exists()
+            )
+        models = list(dict.fromkeys(models))
         self._gen_cb['values']=models
         if hasattr(self,'_train_cb'): self._train_cb['values']=models
         if models and not self.model_var.get():
@@ -1552,6 +1808,101 @@ class StudioPro:
             shutil.copytree(str(src),str(self.MODELS/src.name),dirs_exist_ok=True)
             self._refresh_models(); self._log(f'📥 Folder: {src.name}')
 
+    def _create_voice_profile(self):
+        """Create a saved voice profile from one guided dialog."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title('Create Voice')
+        dlg.configure(bg=C['bg2'])
+        dlg.geometry('600x300')
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        name_var = tk.StringVar()
+        source_var = tk.StringVar()
+        type_var = tk.StringVar(value='speech')
+        permission_var = tk.BooleanVar(value=False)
+
+        tk.Label(dlg, text='CREATE AUTHORIZED VOICE', fg=C['green'],
+                 bg=C['bg2'], font=FONT['h2']).pack(pady=(18, 10))
+        form = tk.Frame(dlg, bg=C['bg2'])
+        form.pack(fill='x', padx=24)
+        tk.Label(form, text='Name', fg=C['white'], bg=C['bg2'],
+                 font=FONT['body']).grid(row=0, column=0, sticky='w', pady=6)
+        tk.Entry(form, textvariable=name_var, bg=C['bg3'], fg=C['white'],
+                 insertbackground=C['cyan'], relief='flat', width=42).grid(
+                     row=0, column=1, columnspan=2, sticky='ew', padx=10)
+        tk.Label(form, text='Reference', fg=C['white'], bg=C['bg2'],
+                 font=FONT['body']).grid(row=1, column=0, sticky='w', pady=6)
+        tk.Entry(form, textvariable=source_var, bg=C['bg3'], fg=C['white'],
+                 insertbackground=C['cyan'], relief='flat', width=34).grid(
+                     row=1, column=1, sticky='ew', padx=10)
+
+        def browse():
+            path = filedialog.askopenfilename(
+                title='Choose clean voice reference',
+                filetypes=[('Audio', '*.wav *.mp3 *.flac *.m4a *.ogg'),
+                           ('All', '*.*')], parent=dlg)
+            if path:
+                source_var.set(path)
+                if not name_var.get().strip():
+                    name_var.set(Path(path).stem.replace(' ', '_'))
+
+        NeonBtn(form, 'BROWSE', cmd=browse, color=C['cyan'],
+                w=105, h=30).grid(row=1, column=2, padx=(0, 0))
+        tk.Label(form, text='Type', fg=C['white'], bg=C['bg2'],
+                 font=FONT['body']).grid(row=2, column=0, sticky='w', pady=6)
+        for value, label in [('speech', 'Speech'), ('song', 'Song')]:
+            tk.Radiobutton(form, text=label, variable=type_var, value=value,
+                           fg=C['cyan'], bg=C['bg2'], selectcolor=C['bg3'],
+                           activebackground=C['bg2'], font=FONT['sm']).grid(
+                               row=2, column=1 if value == 'speech' else 2,
+                               sticky='w', padx=10)
+        tk.Checkbutton(
+            dlg, text='I own this voice or have explicit permission to clone it',
+            variable=permission_var, fg=C['orange'], bg=C['bg2'],
+            selectcolor=C['bg3'], activebackground=C['bg2'],
+            activeforeground=C['white'], font=FONT['sm']).pack(pady=8)
+
+        def worker():
+            try:
+                from voice_cloner import build_voice_profile
+                profile = build_voice_profile(
+                    name_var.get().strip(), source_var.get(),
+                    source_type=type_var.get(),
+                    voices_dir=self.MODELS / 'voices',
+                    progress_cb=self._prog, has_permission=True)
+                if not profile:
+                    raise RuntimeError('Voice profile could not be created.')
+                self._log(f"✅ Voice profile ready: {profile['name']}")
+                self.root.after(0, self._refresh_models)
+                self.root.after(0, lambda: messagebox.showinfo(
+                    'Voice Created',
+                    f"{profile['name']} is ready for neural TTS.\n\n"
+                    'Train or import its RVC model for one-click song replacement.'))
+            except Exception as exc:
+                self._log(f'❌ Voice creation failed: {exc}')
+                self.root.after(0, lambda e=str(exc): messagebox.showerror(
+                    'Voice Creation Failed', e))
+
+        def create():
+            if not name_var.get().strip() or not Path(source_var.get()).exists():
+                messagebox.showwarning('Missing Information',
+                                       'Enter a name and choose an audio file.',
+                                       parent=dlg)
+                return
+            if not permission_var.get():
+                messagebox.showwarning('Permission Required',
+                                       'Confirm authorization to clone this voice.',
+                                       parent=dlg)
+                return
+            dlg.destroy()
+            threading.Thread(target=worker, daemon=True).start()
+
+        NeonBtn(dlg, 'CREATE VOICE', cmd=create, color=C['green'],
+                w=180, h=40).pack(side='left', padx=(150, 8), pady=10)
+        NeonBtn(dlg, 'CANCEL', cmd=dlg.destroy, color=C['red'],
+                w=100, h=40).pack(side='left', pady=10)
+
     # ═══════════════════════════════════════════════════════════════
     #  TRAINING LOGIC
     # ═══════════════════════════════════════════════════════════════
@@ -1595,6 +1946,29 @@ class StudioPro:
     def _stop_training(self):
         self._train_stop.set()
         self._tlog('⏹ Stop signal sent — waiting for process to exit…')
+
+    def _quick_cloud_train(self):
+        """Validate the cleaned dataset, then open the free cloud trainer."""
+        name = self.train_model_var.get().strip()
+        if not name:
+            messagebox.showwarning('No Model', 'Select a target model first.')
+            return
+        try:
+            from rvc_training import validate_training_dataset
+            report = validate_training_dataset(self.DATASET / name)
+        except Exception as exc:
+            messagebox.showerror('Dataset Check Failed', str(exc))
+            return
+        if not report['ready']:
+            messagebox.showwarning(
+                'More Voice Data Needed',
+                f"Found {report['file_count']} files and {report['duration_s']:.1f} seconds.\n\n"
+                'Add at least 3 clean vocal clips totaling 90 seconds, then try again.')
+            return
+        self._tlog(
+            f"✅ Dataset ready: {report['file_count']} clips, "
+            f"{report['duration_s']:.1f}s, quality {report['quality_score']:.2f}")
+        self._cloud_train()
 
     def _get_kaggle_trainer(self):
         """Return a KaggleTrainer, running first-time setup if needed."""
@@ -1693,7 +2067,7 @@ class StudioPro:
         
         def start_kaggle():
             dlg.destroy()
-            self._start_auto_train(name, 'kaggle')
+            self._cloud_train_kaggle(name)
         
         NeonBtn(kf, 'START KAGGLE', cmd=start_kaggle,
                color=C['green'], w=160, h=36).pack(anchor='e', pady=(5,0))
@@ -1709,7 +2083,7 @@ class StudioPro:
         
         def start_colab():
             dlg.destroy()
-            self._start_auto_train(name, 'colab')
+            self._cloud_train_colab(name)
         
         NeonBtn(cf, 'START COLAB', cmd=start_colab,
                color=C['purple'], w=160, h=36).pack(anchor='e', pady=(5,0))
@@ -2068,22 +2442,51 @@ class StudioPro:
         p=filedialog.askopenfilename(title='Select Audio',
             filetypes=[('Audio','*.wav *.mp3 *.flac *.m4a *.ogg'),('All','*.*')])
         if p:
-            d=self.DATASET/m; d.mkdir(exist_ok=True)
-            shutil.copy2(p,d/Path(p).name)
-            self._log(f'📥 → {m}/: {Path(p).name}'); self._refresh_ds()
+            self._separate_training_files(m, [Path(p)])
 
     def _import_ds_folder(self):
         m=self.train_model_var.get()
         if not m: messagebox.showwarning('No Model','Select target model.'); return
         folder=filedialog.askdirectory(title='Select Audio Folder')
         if folder:
-            d=self.DATASET/m; d.mkdir(exist_ok=True)
-            count=0
-            for ext in ('*.wav','*.mp3','*.flac','*.m4a','*.ogg'):
-                for fp in Path(folder).rglob(ext):
-                    dest=d/fp.name
-                    if not dest.exists(): shutil.copy2(fp,dest); count+=1
-            self._log(f'📥 {count} files → {m}/'); self._refresh_ds()
+            files = [fp for ext in ('*.wav','*.mp3','*.flac','*.m4a','*.ogg')
+                     for fp in Path(folder).rglob(ext)]
+            self._separate_training_files(m, files)
+
+    def _separate_training_files(self, model_name, files):
+        """Extract clean vocal stems before adding audio to an RVC dataset."""
+        if not files:
+            messagebox.showwarning('No Audio', 'No supported audio files found.')
+            return
+
+        def worker():
+            from song_converter import separate_vocals
+            dataset = self.DATASET / model_name
+            work = self.OUTPUT / model_name / 'training_separation' / str(int(time.time()))
+            dataset.mkdir(exist_ok=True)
+            added = 0
+            failures = []
+            for index, source in enumerate(files, start=1):
+                try:
+                    self._prog(f'🎚 Separating {index}/{len(files)}: {source.name}',
+                               int(index * 90 / len(files)))
+                    vocal_path, _, method = separate_vocals(
+                        source, work / str(index), method='demucs',
+                        progress_cb=self._prog)
+                    if not vocal_path or method != 'demucs':
+                        raise RuntimeError('Demucs unavailable or separation failed')
+                    destination = dataset / f'{source.stem}_vocals.wav'
+                    shutil.copy2(vocal_path, destination)
+                    added += 1
+                except Exception as exc:
+                    failures.append(f'{source.name}: {exc}')
+            self._prog(f'✅ {added} vocal stem(s) ready for training', 100)
+            self._log(f'🎤 Demucs training import: {added}/{len(files)} vocal stems')
+            for failure in failures[:5]:
+                self._log(f'⚠ {failure}')
+            self.root.after(0, self._refresh_ds)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _open_ds_folder(self):
         m=self.train_model_var.get()

@@ -320,6 +320,7 @@ def convert_vocals(
     out_path: str | Path,
     work_dir: str | Path,
     progress_cb: Optional[_ProgressCB] = None,
+    require_neural: bool = False,
 ) -> tuple[bool, str]:
     """
     Run the song's vocals through the selected voice's converter.
@@ -368,6 +369,11 @@ def convert_vocals(
         except Exception as exc:
             cb(f"RVC sidecar fell back to DSP: {exc}", 0)
 
+    if require_neural:
+        raise RuntimeError(
+            "A trained RVC model and working RVC backend are required for "
+            "indistinguishable song replacement; DSP fallback is disabled."
+        )
     dsp_morph_vocals(vocals_path, profile, out_path, progress_cb=cb)
     return True, "DSP timbre mapping (RVC optional - train a model to upgrade)"
 
@@ -454,6 +460,7 @@ def change_song(
     progress_cb: Optional[_ProgressCB] = None,
     separation: str = "auto",
     vocals_gain_db: float = 0.0,
+    require_neural: bool = False,
 ) -> tuple[Optional[str], dict]:
     """
     One-call: separate -> convert -> recombine any song with a cloned voice.
@@ -471,11 +478,17 @@ def change_song(
                                            separation or "auto", cb)
     if not vocals:
         raise RuntimeError("Could not separate vocals from the song")
+    if require_neural and method != "demucs":
+        raise RuntimeError(
+            "Neural Demucs separation is required for indistinguishable "
+            "song replacement; center-channel fallback is disabled."
+        )
     steps["separation"] = method
 
     cb("Converting vocals to the cloned voice...", 45)
     conv_vocals = out_dir / "converted_vocals.wav"
-    ok, msg = convert_vocals(vocals, profile, conv_vocals, out_dir, cb)
+    ok, msg = convert_vocals(vocals, profile, conv_vocals, out_dir, cb,
+                             require_neural=require_neural)
     steps["conversion"] = msg
 
     cb("Recombining with the instrumental...", 75)

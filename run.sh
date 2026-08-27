@@ -15,7 +15,7 @@ source venv/bin/activate
 
 # Install dependencies if needed
 echo "🔧 Checking dependencies..."
-pip install -q gtts demucs so-vits-svc-fork librosa numpy soundfile pydub
+pip install -q gtts demucs so-vits-svc-fork librosa numpy soundfile pydub qwen-tts
 
 # Run the application
 echo "🚀 Launching AI Vocals Studio..."
