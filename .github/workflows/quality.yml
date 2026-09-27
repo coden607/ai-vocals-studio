@@ -1,0 +1,46 @@
+name: Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest numpy soundfile librosa pydub requests
+      - name: Compile sanity
+        run: |
+          python -m compileall -q             voice_safety.py rvc_training.py rvc_training_cli.py             voice_conversion_engine.py supabase_worker.py train_pacaveli_model.py
+      - name: Focused unit/integration tests
+        run: |
+          pytest -q             test_rvc_training.py             test_rvc_training_job.py             test_voice_conversion.py             test_upstream_error_handling.py             test_kaggle_worker.py
+
+  web-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: vercel_frontdoor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: vercel_frontdoor/package-lock.json
+      - run: npm ci
+      - name: Test
+        run: npm test --if-present
+      - name: Build
+        run: npm run build --if-present
