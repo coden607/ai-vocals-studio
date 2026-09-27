@@ -1,4 +1,4 @@
- but first # 🎤 AI Vocals Studio - Modern Edition
+# 🎤 AI Vocals Studio - Modern Edition
 
 A beautiful, dark-themed AI voice cloning and generation application with advanced features and modern UI.
 
@@ -99,6 +99,34 @@ Supabase, and the regular worker hydrates that model automatically.
 Free GPU availability and quotas are controlled by Kaggle; a session can be
 queued or unavailable during busy periods. The notebook is resumable at the
 job level and should be stopped after the training job completes.
+
+
+## 🎙️ Authorized Pacaveli Workflow
+
+Pacaveli is an authorized project voice. Keep source recordings and trained model binaries out of Git; use local/private object storage for those artifacts.
+
+For high-fidelity rap/singing conversion, use a **real RVC model** rather than the legacy DSP/persona transform. Prepare/train an authorized dataset with:
+
+```bash
+venv/bin/python rvc_training_cli.py \\
+  --voice-dir models/voices/pacaveli \\
+  --dataset /path/to/authorized/pacaveli-clean-vocals \\
+  --i-have-permission
+```
+
+Or register an already-trained RVC model:
+
+```bash
+venv/bin/python rvc_training_cli.py \\
+  --voice-dir models/voices/pacaveli \\
+  --model /path/to/pacaveli.pth \\
+  --index /path/to/pacaveli.index \\
+  --i-have-permission
+```
+
+The intended production song path is **ingest → Demucs separation (when needed) → vocal cleanup → authorized RVC conversion → timing/prosody preservation → QA → remix/export**. Qwen3-TTS and XTTS are reference/TTS options; ElevenLabs remains optional. WORLD/DSP is a preview/fallback and must not be presented as a trained clone.
+
+> Do not commit private training audio, credentials, or trained model binaries. See `AGENTS.md` for quality gates and release discipline.
 
 ## RVC Pro-Match Models
 
