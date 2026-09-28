@@ -1,0 +1,149 @@
+name: Full Sanity E2E Lighthouse
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: full-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install system audio tools
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest numpy soundfile librosa scipy pydub requests
+      - name: Compile all project Python
+        run: python -m compileall -q .
+      - name: Full CPU-safe test suite
+        run: pytest -q --disable-warnings --maxfail=1
+      - name: CPU voice bootstrap CLI sanity
+        run: python cpu_voice_bootstrap.py --help
+      - name: Song pipeline CLI sanity
+        run: python song_pipeline_cli.py --help
+      - name: Qwen integration compile/import contract
+        run: |
+          python -m py_compile qwen3_tts_engine.py clone_voice_cli.py
+          python - <<'PY'
+          from qwen3_tts_engine import Qwen3TTSEngine
+          e = Qwen3TTSEngine()
+          assert e.device in {"cpu", "cuda"}
+          assert "Qwen/Qwen3-TTS-12Hz-0.6B-Base" in e.get_supported_models()
+          print("Qwen integration contract OK; device:", e.device)
+          PY
+
+  static-web-e2e-lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: JavaScript syntax sanity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find vercel_frontdoor -type f -name '*.js' -print)
+          test "${#files[@]}" -gt 0
+          for file in "${files[@]}"; do node --check "$file"; done
+          test -s vercel_frontdoor/index.html
+      - name: Install browser/Lighthouse tooling
+        run: |
+          npm install --no-save playwright@1.55.0 lighthouse@12.8.2
+          npx playwright install --with-deps chromium
+      - name: Start static frontdoor
+        run: |
+          python3 -m http.server 4173 --directory vercel_frontdoor > /tmp/frontdoor.log 2>&1 &
+          echo $! > /tmp/frontdoor.pid
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:4173/ >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/frontdoor.log
+          exit 1
+      - name: Browser E2E smoke
+        run: |
+          node - <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({headless:true});
+            const page = await browser.newPage();
+            const errors = [];
+            page.on('pageerror', e => errors.push(String(e)));
+            page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+            const response = await page.goto('http://127.0.0.1:4173/', {waitUntil:'networkidle'});
+            if (!response || !response.ok()) throw new Error('frontdoor HTTP load failed');
+            const title = await page.title();
+            if (!title.includes('AI Vocals Studio')) throw new Error('unexpected page title: ' + title);
+            const body = await page.locator('body').innerText();
+            if (!body.trim()) throw new Error('empty UI');
+            if (errors.length) throw new Error('browser errors: ' + errors.join(' | '));
+            await browser.close();
+          })();
+          JS
+      - name: Lighthouse production-style audit
+        run: |
+          mkdir -p artifacts
+          npx lighthouse http://127.0.0.1:4173/ \
+            --chrome-flags="--headless --no-sandbox" \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --output=json --output-path=artifacts/lighthouse.json
+          node - <<'JS'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('artifacts/lighthouse.json','utf8'));
+          const required = {performance:0.80, accessibility:0.90, 'best-practices':0.90, seo:0.90};
+          let failed = false;
+          for (const [name,min] of Object.entries(required)) {
+            const score = r.categories[name].score;
+            console.log(name, Math.round(score*100), 'minimum', Math.round(min*100));
+            if (score < min) failed = true;
+          }
+          if (failed) process.exit(1);
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-${{ github.sha }}
+          path: artifacts/lighthouse.json
+          if-no-files-found: ignore
+
+  qwen-cpu-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Qwen3-TTS
+        run: |
+          python -m pip install --upgrade pip
+          pip install qwen-tts soundfile
+      - name: Verify CPU clone engine can initialize
+        env:
+          QWEN_TTS_MODEL: Qwen/Qwen3-TTS-12Hz-0.6B-Base
+        run: |
+          python - <<'PY'
+          from qwen3_tts_engine import Qwen3TTSEngine
+          e = Qwen3TTSEngine()
+          assert e.can_clone(), "qwen-tts import/engine initialization failed"
+          assert e.device == "cpu"
+          print("Qwen CPU engine ready")
+          PY
