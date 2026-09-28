@@ -174,7 +174,7 @@ def create_training_lists(speaker_dir, processed_files):
 def train_with_svc_cli(config_file, model_name="Pacaveli"):
     """Train using so-vits-svc-fork CLI"""
     print(f"🚀 Starting ML training for {model_name}...")
-    print("⏳ This will take significant time (hours on CPU)...")
+    print("⏳ CPU neural training can be extremely slow; use cpu_voice_bootstrap.py for the immediate no-GPU path.")
     
     try:
         # Check if svc command is available
