@@ -261,3 +261,32 @@ For issues and questions:
 
 🎤 **AI Vocals Studio - Modern Edition**  
 *Professional Voice Cloning Made Beautiful*
+
+
+## Song separation, acapellas, and cloned-vocal replacement
+
+The production song path is `song_pipeline_cli.py` + `song_converter.py`.
+
+Create a clean vocal/acapella stem and the matching instrumental:
+
+```bash
+python song_pipeline_cli.py separate input_song.wav \
+  --output-dir output/my_song \
+  --method demucs \
+  --require-neural
+```
+
+This produces `vocals.wav` (the acapella) and `instrumental.wav` (the beat/no-vocals stem).
+
+After an authorized RVC model/profile has been created, replace the original vocal while preserving the song timing and remix it over the separated instrumental:
+
+```bash
+python song_pipeline_cli.py replace input_song.wav \
+  --profile models/voices/pacaveli/profile.json \
+  --output-dir output/pacaveli_song \
+  --separation demucs \
+  --require-neural \
+  --i-have-permission
+```
+
+For final-quality replacement, `--require-neural` intentionally refuses center-channel separation and DSP voice morphing. It requires Demucs plus a valid trained RVC model instead of silently returning a lower-quality approximation.
