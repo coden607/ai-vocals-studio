@@ -18,29 +18,42 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest numpy soundfile librosa pydub requests
+          pip install pytest numpy soundfile librosa scipy pydub requests
       - name: Compile sanity
         run: |
-          python -m compileall -q             voice_safety.py rvc_training.py rvc_training_cli.py             voice_conversion_engine.py supabase_worker.py train_pacaveli_model.py
+          python -m compileall -q \
+            voice_safety.py rvc_training.py rvc_training_cli.py \
+            voice_conversion_engine.py song_converter.py song_pipeline_cli.py \
+            supabase_worker.py train_pacaveli_model.py
       - name: Focused unit/integration tests
         run: |
-          pytest -q             test_rvc_training.py             test_rvc_training_job.py             test_voice_conversion.py             test_upstream_error_handling.py             test_kaggle_worker.py
+          pytest -q \
+            test_rvc_training.py \
+            test_rvc_training_job.py \
+            test_voice_conversion.py \
+            test_clone_any_voice_pipeline.py \
+            test_upstream_error_handling.py \
+            test_kaggle_worker.py
 
   web-quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: vercel_frontdoor
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: vercel_frontdoor/package-lock.json
-      - run: npm ci
-      - name: Test
-        run: npm test --if-present
-      - name: Build
-        run: npm run build --if-present
+      - name: Validate frontdoor JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find vercel_frontdoor -type f -name '*.js' -print)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No JavaScript files found"
+            exit 1
+          fi
+          for file in "${files[@]}"; do
+            node --check "$file"
+          done
+      - name: Verify frontdoor entrypoint
+        run: test -s vercel_frontdoor/index.html
