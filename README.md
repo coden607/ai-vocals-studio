@@ -290,3 +290,17 @@ python song_pipeline_cli.py replace input_song.wav \
 ```
 
 For final-quality replacement, `--require-neural` intentionally refuses center-channel separation and DSP voice morphing. It requires Demucs plus a valid trained RVC model instead of silently returning a lower-quality approximation.
+
+
+### No-GPU Pacaveli bootstrap
+
+A GPU is not required to create the first usable authorized Pacaveli profile. Point the CPU bootstrap at clean speech/acapella files or a folder:
+
+```bash
+python cpu_voice_bootstrap.py /path/to/pacaveli-audio \
+  --name Pacaveli \
+  --source-type speech \
+  --i-have-permission
+```
+
+If the references are full songs, use `--source-type song`; the pipeline separates the vocal before profiling. This creates `models/voices/Pacaveli/voice_profile.json` and `reference.wav` for CPU DSP conversion and reference-based TTS. It deliberately does not label that profile as an RVC checkpoint. A trained RVC model remains the neural singing/rap conversion upgrade.
