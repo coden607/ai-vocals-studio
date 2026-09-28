@@ -209,7 +209,7 @@ class Qwen3TTSEngine:
             low_mem = os.environ.get("QWEN_LOW_MEM", "").lower() in ("1", "true", "yes")
             dtype = torch.bfloat16 if self.device == "cuda" else (
                 torch.float16 if low_mem else torch.float32)
-            attn = "flash_attention_2" if self.device == "cuda" else "eager"
+            attn = "flash_attention_2" if self.device == "cuda" else "sdpa"
 
             try:
                 self.model = Qwen3TTSModel.from_pretrained(
