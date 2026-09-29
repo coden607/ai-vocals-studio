@@ -1,4 +1,4 @@
- but first # 🎤 AI Vocals Studio - Modern Edition
+# 🎤 AI Vocals Studio - Modern Edition
 
 A beautiful, dark-themed AI voice cloning and generation application with advanced features and modern UI.
 
@@ -99,6 +99,34 @@ Supabase, and the regular worker hydrates that model automatically.
 Free GPU availability and quotas are controlled by Kaggle; a session can be
 queued or unavailable during busy periods. The notebook is resumable at the
 job level and should be stopped after the training job completes.
+
+
+## 🎙️ Authorized Pacaveli Workflow
+
+Pacaveli is an authorized project voice. Keep source recordings and trained model binaries out of Git; use local/private object storage for those artifacts.
+
+For high-fidelity rap/singing conversion, use a **real RVC model** rather than the legacy DSP/persona transform. Prepare/train an authorized dataset with:
+
+```bash
+venv/bin/python rvc_training_cli.py \\
+  --voice-dir models/voices/pacaveli \\
+  --dataset /path/to/authorized/pacaveli-clean-vocals \\
+  --i-have-permission
+```
+
+Or register an already-trained RVC model:
+
+```bash
+venv/bin/python rvc_training_cli.py \\
+  --voice-dir models/voices/pacaveli \\
+  --model /path/to/pacaveli.pth \\
+  --index /path/to/pacaveli.index \\
+  --i-have-permission
+```
+
+The intended production song path is **ingest → Demucs separation (when needed) → vocal cleanup → authorized RVC conversion → timing/prosody preservation → QA → remix/export**. Qwen3-TTS and XTTS are reference/TTS options; ElevenLabs remains optional. WORLD/DSP is a preview/fallback and must not be presented as a trained clone.
+
+> Do not commit private training audio, credentials, or trained model binaries. See `AGENTS.md` for quality gates and release discipline.
 
 ## RVC Pro-Match Models
 
@@ -233,3 +261,46 @@ For issues and questions:
 
 🎤 **AI Vocals Studio - Modern Edition**  
 *Professional Voice Cloning Made Beautiful*
+
+
+## Song separation, acapellas, and cloned-vocal replacement
+
+The production song path is `song_pipeline_cli.py` + `song_converter.py`.
+
+Create a clean vocal/acapella stem and the matching instrumental:
+
+```bash
+python song_pipeline_cli.py separate input_song.wav \
+  --output-dir output/my_song \
+  --method demucs \
+  --require-neural
+```
+
+This produces `vocals.wav` (the acapella) and `instrumental.wav` (the beat/no-vocals stem).
+
+After an authorized RVC model/profile has been created, replace the original vocal while preserving the song timing and remix it over the separated instrumental:
+
+```bash
+python song_pipeline_cli.py replace input_song.wav \
+  --profile models/voices/pacaveli/profile.json \
+  --output-dir output/pacaveli_song \
+  --separation demucs \
+  --require-neural \
+  --i-have-permission
+```
+
+For final-quality replacement, `--require-neural` intentionally refuses center-channel separation and DSP voice morphing. It requires Demucs plus a valid trained RVC model instead of silently returning a lower-quality approximation.
+
+
+### No-GPU Pacaveli bootstrap
+
+A GPU is not required to create the first usable authorized Pacaveli profile. Point the CPU bootstrap at clean speech/acapella files or a folder:
+
+```bash
+python cpu_voice_bootstrap.py /path/to/pacaveli-audio \
+  --name Pacaveli \
+  --source-type speech \
+  --i-have-permission
+```
+
+If the references are full songs, use `--source-type song`; the pipeline separates the vocal before profiling. This creates `models/voices/Pacaveli/voice_profile.json` and `reference.wav` for CPU DSP conversion and reference-based TTS. It deliberately does not label that profile as an RVC checkpoint. A trained RVC model remains the neural singing/rap conversion upgrade.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import soundfile as sf
 
 
 ROOT = Path(__file__).resolve().parent
-PYTHON = ROOT / "venv" / "bin" / "python"
+PYTHON = Path(sys.executable)
 
 
 def _write_tone(path: Path, hz: float, *, seconds: float = 2.0, sr: int = 22050) -> None:

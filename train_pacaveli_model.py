@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Train a real ML voice model for Pacaveli using so-vits-svc-fork
-This will create a model that sounds exactly like 2Pac
+Legacy Pacaveli training helper. Prefer rvc_training_cli.py for production RVC training.
 """
 import os
 import sys
@@ -31,7 +31,7 @@ def prepare_pacaveli_dataset():
         print(f"❌ No audio files found in {pacaveli_dir}")
         return None
     
-    print(f"📁 Found {len(audio_files)} high-quality 2Pac acapella files")
+    print(f"📁 Found {len(audio_files)} authorized Pacaveli training files")
     
     # Create processed dataset directory
     processed_dir = dataset_dir / 'Pacaveli_processed'
@@ -174,7 +174,7 @@ def create_training_lists(speaker_dir, processed_files):
 def train_with_svc_cli(config_file, model_name="Pacaveli"):
     """Train using so-vits-svc-fork CLI"""
     print(f"🚀 Starting ML training for {model_name}...")
-    print("⏳ This will take significant time (hours on CPU)...")
+    print("⏳ CPU neural training can be extremely slow; use cpu_voice_bootstrap.py for the immediate no-GPU path.")
     
     try:
         # Check if svc command is available
@@ -317,11 +317,7 @@ def create_fallback_model(speaker_name="Pacaveli"):
             with open(model_dir / "voice_profile.json", 'w') as f:
                 json.dump(voice_profile, f, indent=2)
             
-            # Create model.pth placeholder
-            model_file = model_dir / "model.pth"
-            model_file.write_text("")
-            
-            # Create config.json
+            # A voice profile is not a trained ML model. Do not create a placeholder .pth.\n            # Real model artifacts must come from the RVC training/import pipeline.\n\n            # Create config.json
             config = {
                 "spk": {speaker_name: 0},
                 "version": "4.0"
