@@ -96,7 +96,8 @@ jobs:
             const body = await page.locator('body').innerText();
             if (!body.trim()) throw new Error('empty UI');
             const actionableErrors = errors.filter(e => !/Failed to load resource/.test(e));
-            const actionableResponses = failedResponses.filter(e => !/\/favicon\.ico(?:\?|$)/.test(e));
+            const expectedStaticApi = /^404 http:\/\/127\.0\.0\.1:4173\/api\/(?:capabilities|storage-health|jobs)(?:\?|$)/;
+            const actionableResponses = failedResponses.filter(e => !/\/favicon\.ico(?:\?|$)/.test(e) && !expectedStaticApi.test(e));
             if (actionableErrors.length || actionableResponses.length) {
               throw new Error('browser errors: ' + [...actionableErrors, ...actionableResponses].join(' | '));
             }
