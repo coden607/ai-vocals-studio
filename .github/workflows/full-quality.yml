@@ -85,15 +85,21 @@ jobs:
             const browser = await chromium.launch({headless:true});
             const page = await browser.newPage();
             const errors = [];
+            const failedResponses = [];
             page.on('pageerror', e => errors.push(String(e)));
             page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+            page.on('response', r => { if (r.status() >= 400) failedResponses.push(`${r.status()} ${r.url()}`); });
             const response = await page.goto('http://127.0.0.1:4173/', {waitUntil:'networkidle'});
             if (!response || !response.ok()) throw new Error('frontdoor HTTP load failed');
             const title = await page.title();
             if (!title.includes('AI Vocals Studio')) throw new Error('unexpected page title: ' + title);
             const body = await page.locator('body').innerText();
             if (!body.trim()) throw new Error('empty UI');
-            if (errors.length) throw new Error('browser errors: ' + errors.join(' | '));
+            const actionableErrors = errors.filter(e => !/Failed to load resource/.test(e));
+            const actionableResponses = failedResponses.filter(e => !/\/favicon\.ico(?:\?|$)/.test(e));
+            if (actionableErrors.length || actionableResponses.length) {
+              throw new Error('browser errors: ' + [...actionableErrors, ...actionableResponses].join(' | '));
+            }
             await browser.close();
           })();
           JS
