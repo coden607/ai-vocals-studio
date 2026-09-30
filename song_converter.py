@@ -82,6 +82,7 @@ def separate_vocals(
     work_dir: str | Path,
     method: str = "auto",
     progress_cb: Optional[_ProgressCB] = None,
+    allow_fallback: bool = True,
 ) -> tuple[Optional[str], Optional[str], str]:
     """
     Split `song_path` into vocals and instrumental tracks.
@@ -129,7 +130,9 @@ def separate_vocals(
     if method == "demucs":
         if not _ensure_demucs(cb):
             cb("demucs unavailable - using center-channel", 0)
-            return separate_vocals(song_path, work_dir, "center", cb)
+            if not allow_fallback:
+                raise RuntimeError("Demucs is required for neural separation but is unavailable")
+            return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
         try:
             cb("Separating with demucs (first run downloads model)...", 20)
             cmd = [
@@ -139,11 +142,15 @@ def separate_vocals(
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
             if r.returncode != 0:
                 cb(f"demucs failed ({r.stderr[-200:].strip()}) - using center", 0)
-                return separate_vocals(song_path, work_dir, "center", cb)
+                if not allow_fallback:
+                    raise RuntimeError(f"Demucs is required and separation failed: {r.stderr[-500:].strip()}")
+                return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
             demucs_out = list((work_dir / "demucs").rglob("vocals.wav"))
             if not demucs_out:
                 cb("demucs produced no output - using center", 0)
-                return separate_vocals(song_path, work_dir, "center", cb)
+                if not allow_fallback:
+                    raise RuntimeError("Demucs is required but produced no vocal stem")
+                return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
             vocals_src = demucs_out[0]
             inst_src = vocals_src.with_name("no_vocals.wav")
             vocals_w = work_dir / "vocals.wav"
@@ -157,10 +164,14 @@ def separate_vocals(
             return str(vocals_w), str(inst_w), "demucs"
         except Exception as e:  # pragma: no cover
             cb(f"demucs error ({e}) - using center", 0)
-            return separate_vocals(song_path, work_dir, "center", cb)
+            if not allow_fallback:
+                raise RuntimeError(f"Demucs is required and separation errored: {e}") from e
+            return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
 
+    if not allow_fallback:
+        raise RuntimeError(f"Unknown separation method: {method}")
     cb("Unknown method - using center", 0)
-    return separate_vocals(song_path, work_dir, "center", cb)
+    return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
 
 
 def _load_mono(path: str | Path, sr: int = 22050) -> np.ndarray:
@@ -507,8 +518,11 @@ def change_song(
     steps: dict[str, str] = {}
 
     cb("Separating vocals from instrumental...", 10)
-    vocals, inst, method = separate_vocals(song_path, out_dir,
-                                           separation or "auto", cb)
+    requested_separation = "demucs" if require_neural and (separation or "auto") == "auto" else (separation or "auto")
+    vocals, inst, method = separate_vocals(
+        song_path, out_dir, requested_separation, cb,
+        allow_fallback=not require_neural,
+    )
     if not vocals:
         raise RuntimeError("Could not separate vocals from the song")
     if require_neural and method != "demucs":
