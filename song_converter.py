@@ -505,6 +505,7 @@ def change_song(
     separation: str = "auto",
     vocals_gain_db: float = 0.0,
     require_neural: bool = False,
+    source_matched_export: bool = True,
 ) -> tuple[Optional[str], dict]:
     """
     One-call: separate -> convert -> recombine any song with a cloned voice.
@@ -545,8 +546,21 @@ def change_song(
     combine_tracks(conv_vocals, inst, out_path,
                    vocals_gain_db=vocals_gain_db, progress_cb=cb)
     steps["output"] = str(out_path)
+
+    # Keep WAV as the processing master; optionally make an iPhone-friendly
+    # delivery copy matching the source codec/bitrate class.
+    delivery_path = str(out_path)
+    if source_matched_export:
+        try:
+            from audio_export import export_like_source
+            delivery_path = export_like_source(out_path, song_path, out_dir / "delivery")
+            steps["master"] = str(out_path)
+            steps["delivery"] = delivery_path
+        except Exception as exc:
+            steps["delivery_warning"] = str(exc)
+
     cb("Song conversion complete!", 100)
-    return str(out_path), steps
+    return delivery_path, steps
 
 
 def profile_for_pitch(pitch_hz: float) -> dict:
