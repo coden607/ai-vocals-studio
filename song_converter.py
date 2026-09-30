@@ -82,6 +82,7 @@ def separate_vocals(
     work_dir: str | Path,
     method: str = "auto",
     progress_cb: Optional[_ProgressCB] = None,
+    allow_fallback: bool = True,
 ) -> tuple[Optional[str], Optional[str], str]:
     """
     Split `song_path` into vocals and instrumental tracks.
@@ -129,7 +130,9 @@ def separate_vocals(
     if method == "demucs":
         if not _ensure_demucs(cb):
             cb("demucs unavailable - using center-channel", 0)
-            return separate_vocals(song_path, work_dir, "center", cb)
+            if not allow_fallback:
+                raise RuntimeError("Demucs is required for neural separation but is unavailable")
+            return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
         try:
             cb("Separating with demucs (first run downloads model)...", 20)
             cmd = [
@@ -139,11 +142,15 @@ def separate_vocals(
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
             if r.returncode != 0:
                 cb(f"demucs failed ({r.stderr[-200:].strip()}) - using center", 0)
-                return separate_vocals(song_path, work_dir, "center", cb)
+                if not allow_fallback:
+                    raise RuntimeError(f"Demucs is required and separation failed: {r.stderr[-500:].strip()}")
+                return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
             demucs_out = list((work_dir / "demucs").rglob("vocals.wav"))
             if not demucs_out:
                 cb("demucs produced no output - using center", 0)
-                return separate_vocals(song_path, work_dir, "center", cb)
+                if not allow_fallback:
+                    raise RuntimeError("Demucs is required but produced no vocal stem")
+                return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
             vocals_src = demucs_out[0]
             inst_src = vocals_src.with_name("no_vocals.wav")
             vocals_w = work_dir / "vocals.wav"
@@ -157,10 +164,14 @@ def separate_vocals(
             return str(vocals_w), str(inst_w), "demucs"
         except Exception as e:  # pragma: no cover
             cb(f"demucs error ({e}) - using center", 0)
-            return separate_vocals(song_path, work_dir, "center", cb)
+            if not allow_fallback:
+                raise RuntimeError(f"Demucs is required and separation errored: {e}") from e
+            return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
 
+    if not allow_fallback:
+        raise RuntimeError(f"Unknown separation method: {method}")
     cb("Unknown method - using center", 0)
-    return separate_vocals(song_path, work_dir, "center", cb)
+    return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
 
 
 def _load_mono(path: str | Path, sr: int = 22050) -> np.ndarray:
@@ -325,14 +336,34 @@ def convert_vocals(
     """
     Run the song's vocals through the selected voice's converter.
 
-    Uses RVC when a trained RVC model exists for the cloned voice
-    (models/voices/<name>/rvc_model.pth or .index), otherwise falls back to
-    the pure-DSP morph. Returns (success, message).
+    Prefers Seed-VC zero-shot conversion when SEED_VC_DIR is configured and a
+    reference recording is available, then RVC when a trained model exists,
+    otherwise falls back to DSP. Returns (success, message).
     """
     cb = progress_cb or _noop
     name = profile.get("name", "voice")
     configured_voice_dir = Path(profile.get("voice_dir", Path("models") / "voices" / name))
     voice_dir = configured_voice_dir if configured_voice_dir.name == name else configured_voice_dir / name
+    # Seed-VC needs no per-speaker training: an authorized reference recording
+    # is enough. This is the preferred zero-shot path for rap/singing.
+    reference = profile.get("reference") or profile.get("reference_audio")
+    if reference:
+        reference_path = Path(reference)
+        if not reference_path.is_absolute():
+            candidate = voice_dir / reference_path
+            if candidate.exists():
+                reference_path = candidate
+        try:
+            from seed_vc_engine import seed_vc_available, convert_seed_vc
+            if seed_vc_available() and reference_path.exists():
+                convert_seed_vc(
+                    vocals_path, reference_path, out_path,
+                    singing=True, diffusion_steps=30, progress_cb=cb,
+                )
+                return True, "Seed-VC zero-shot neural voice conversion"
+        except Exception as exc:
+            cb(f"Seed-VC unavailable/failed: {exc}", 0)
+
     rvc_model = None
     for cand in (voice_dir / f"{name}.pth", voice_dir / "rvc_model.pth",
                  voice_dir / "model.pth"):
@@ -371,8 +402,8 @@ def convert_vocals(
 
     if require_neural:
         raise RuntimeError(
-            "A trained RVC model and working RVC backend are required for "
-            "indistinguishable song replacement; DSP fallback is disabled."
+            "A working Seed-VC reference conversion or trained RVC backend is "
+            "required for neural song replacement; DSP fallback is disabled."
         )
     dsp_morph_vocals(vocals_path, profile, out_path, progress_cb=cb)
     return True, "DSP timbre mapping (RVC optional - train a model to upgrade)"
@@ -432,10 +463,24 @@ def combine_tracks(
     if i_.ndim == 1:
         i_ = _to_stereo(i_)
 
-    n = min(v.shape[0], i_.shape[0])
+    # The instrumental is the timing/master clock. Resample converted vocals
+    # to it, then pad/trim without changing playback speed.
+    if vsr != isr:
+        if not HAS_LIBROSA:
+            raise RuntimeError("librosa is required to resample mismatched tracks")
+        v = np.stack([
+            librosa.resample(v[:, ch], orig_sr=vsr, target_sr=isr)
+            for ch in range(v.shape[1])
+        ], axis=-1).astype(np.float32)
+        vsr = isr
+
+    n = i_.shape[0]
     if n <= 0:
-        raise RuntimeError("Empty tracks - nothing to mix")
-    v = v[:n]
+        raise RuntimeError("Empty instrumental - nothing to mix")
+    if v.shape[0] < n:
+        v = np.pad(v, ((0, n - v.shape[0]), (0, 0)))
+    else:
+        v = v[:n]
     i_ = i_[:n]
 
     gain = 10.0 ** (vocals_gain_db / 20.0)
@@ -444,8 +489,7 @@ def combine_tracks(
     if peak > 1.0:
         mixed = mixed / peak * 0.98
 
-    sr = isr if isr == vsr else min(isr, vsr)
-    sf.write(str(out_path), mixed, sr)
+    sf.write(str(out_path), mixed, isr)
     cb("Done", 100)
     return str(out_path)
 
@@ -461,6 +505,7 @@ def change_song(
     separation: str = "auto",
     vocals_gain_db: float = 0.0,
     require_neural: bool = False,
+    source_matched_export: bool = True,
 ) -> tuple[Optional[str], dict]:
     """
     One-call: separate -> convert -> recombine any song with a cloned voice.
@@ -474,8 +519,11 @@ def change_song(
     steps: dict[str, str] = {}
 
     cb("Separating vocals from instrumental...", 10)
-    vocals, inst, method = separate_vocals(song_path, out_dir,
-                                           separation or "auto", cb)
+    requested_separation = "demucs" if require_neural and (separation or "auto") == "auto" else (separation or "auto")
+    vocals, inst, method = separate_vocals(
+        song_path, out_dir, requested_separation, cb,
+        allow_fallback=not require_neural,
+    )
     if not vocals:
         raise RuntimeError("Could not separate vocals from the song")
     if require_neural and method != "demucs":
@@ -498,8 +546,21 @@ def change_song(
     combine_tracks(conv_vocals, inst, out_path,
                    vocals_gain_db=vocals_gain_db, progress_cb=cb)
     steps["output"] = str(out_path)
+
+    # Keep WAV as the processing master; optionally make an iPhone-friendly
+    # delivery copy matching the source codec/bitrate class.
+    delivery_path = str(out_path)
+    if source_matched_export:
+        try:
+            from audio_export import export_like_source
+            delivery_path = export_like_source(out_path, song_path, out_dir / "delivery")
+            steps["master"] = str(out_path)
+            steps["delivery"] = delivery_path
+        except Exception as exc:
+            steps["delivery_warning"] = str(exc)
+
     cb("Song conversion complete!", 100)
-    return str(out_path), steps
+    return delivery_path, steps
 
 
 def profile_for_pitch(pitch_hz: float) -> dict:
