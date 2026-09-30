@@ -126,7 +126,7 @@ def convert_target_audio(
     target_type: str,
     output_dir: Path,
     vocals_gain_db: float,
-    separation: str = "auto",
+    separation: str = "demucs",
     quality_target: str = "studio",
 ) -> Optional[str]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -137,12 +137,9 @@ def convert_target_audio(
         from song_converter import change_song, write_conversion_report
         plan = choose_best_plan(profile=profile, mode=plan_mode, target_has_voice=True)
         print(f"[ok] selected engine plan: {plan['engine']} ({plan['confidence']}% confidence)")
-        if quality_target == "pro" and plan.get("engine") != "RVC":
-            raise RuntimeError(
-                "Pro-match song replacement requires a trained RVC model for this voice. "
-                "Add rvc_model.pth to the voice profile directory or lower quality target to Studio/Draft."
-            )
-
+        # Songs always follow separate -> convert isolated vocal -> remix over
+        # the untouched separated instrumental. Studio/Pro never permit a
+        # center-channel or DSP-only shortcut.
         out, steps = change_song(
             target_audio,
             profile,
@@ -150,6 +147,7 @@ def convert_target_audio(
             progress_cb=_progress,
             separation=separation,
             vocals_gain_db=vocals_gain_db,
+            require_neural=quality_target in {"studio", "pro"},
         )
         print(f"[ok] song conversion engine: {steps.get('conversion')}")
         score_path = output_dir / "converted_vocals.wav"
@@ -546,8 +544,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--separation",
         choices=["auto", "demucs", "center"],
-        default=os.environ.get("SONG_SEPARATION_METHOD", "auto"),
-        help="song vocal separation method; center is fastest, demucs is highest quality after model download",
+        default=os.environ.get("SONG_SEPARATION_METHOD", "demucs"),
+        help="song vocal separation method; Demucs is the production default and runs before any voice conversion",
     )
     parser.add_argument("--quality-target", choices=["draft", "studio", "pro"], default="studio")
     parser.add_argument(
