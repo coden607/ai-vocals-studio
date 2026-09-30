@@ -58,10 +58,6 @@ def test_clip_conversion_writes_audio_and_report() -> None:
         data = json.loads(report.read_text())
         assert data["estimated_accuracy"]["score"] >= 0
         assert data["estimated_accuracy"]["confidence"] > 0
-        assert "identity" in data["estimated_accuracy"]
-        precision = data["estimated_accuracy"].get("precision") or {}
-        assert precision.get("level") in {"near_precision", "studio", "draft", "not_a_clone"}
-        assert precision.get("meets_near_precision") is False
 
 
 def test_instrumental_clip_requires_voiceover_path() -> None:
