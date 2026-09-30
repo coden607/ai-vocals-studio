@@ -325,14 +325,34 @@ def convert_vocals(
     """
     Run the song's vocals through the selected voice's converter.
 
-    Uses RVC when a trained RVC model exists for the cloned voice
-    (models/voices/<name>/rvc_model.pth or .index), otherwise falls back to
-    the pure-DSP morph. Returns (success, message).
+    Prefers Seed-VC zero-shot conversion when SEED_VC_DIR is configured and a
+    reference recording is available, then RVC when a trained model exists,
+    otherwise falls back to DSP. Returns (success, message).
     """
     cb = progress_cb or _noop
     name = profile.get("name", "voice")
     configured_voice_dir = Path(profile.get("voice_dir", Path("models") / "voices" / name))
     voice_dir = configured_voice_dir if configured_voice_dir.name == name else configured_voice_dir / name
+    # Seed-VC needs no per-speaker training: an authorized reference recording
+    # is enough. This is the preferred zero-shot path for rap/singing.
+    reference = profile.get("reference") or profile.get("reference_audio")
+    if reference:
+        reference_path = Path(reference)
+        if not reference_path.is_absolute():
+            candidate = voice_dir / reference_path
+            if candidate.exists():
+                reference_path = candidate
+        try:
+            from seed_vc_engine import seed_vc_available, convert_seed_vc
+            if seed_vc_available() and reference_path.exists():
+                convert_seed_vc(
+                    vocals_path, reference_path, out_path,
+                    singing=True, diffusion_steps=30, progress_cb=cb,
+                )
+                return True, "Seed-VC zero-shot neural voice conversion"
+        except Exception as exc:
+            cb(f"Seed-VC unavailable/failed: {exc}", 0)
+
     rvc_model = None
     for cand in (voice_dir / f"{name}.pth", voice_dir / "rvc_model.pth",
                  voice_dir / "model.pth"):
@@ -371,8 +391,8 @@ def convert_vocals(
 
     if require_neural:
         raise RuntimeError(
-            "A trained RVC model and working RVC backend are required for "
-            "indistinguishable song replacement; DSP fallback is disabled."
+            "A working Seed-VC reference conversion or trained RVC backend is "
+            "required for neural song replacement; DSP fallback is disabled."
         )
     dsp_morph_vocals(vocals_path, profile, out_path, progress_cb=cb)
     return True, "DSP timbre mapping (RVC optional - train a model to upgrade)"
