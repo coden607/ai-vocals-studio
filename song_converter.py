@@ -502,13 +502,15 @@ def change_song(
     profile: dict,
     out_dir: str | Path,
     progress_cb: Optional[_ProgressCB] = None,
-    separation: str = "auto",
+    separation: str = "demucs",
     vocals_gain_db: float = 0.0,
     require_neural: bool = False,
     source_matched_export: bool = True,
 ) -> tuple[Optional[str], dict]:
     """
-    One-call: separate -> convert -> recombine any song with a cloned voice.
+    One-call production contract: neural-separate the song first, convert only
+    the isolated vocal while preserving source timing/pitch contour, then remix
+    that converted vocal over the separated original instrumental.
 
     Returns (output_song_path, steps_done) where steps_done describes the
     produced artifacts and which techniques were used.
