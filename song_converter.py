@@ -432,10 +432,24 @@ def combine_tracks(
     if i_.ndim == 1:
         i_ = _to_stereo(i_)
 
-    n = min(v.shape[0], i_.shape[0])
+    # The instrumental is the timing/master clock. Resample converted vocals
+    # to it, then pad/trim without changing playback speed.
+    if vsr != isr:
+        if not HAS_LIBROSA:
+            raise RuntimeError("librosa is required to resample mismatched tracks")
+        v = np.stack([
+            librosa.resample(v[:, ch], orig_sr=vsr, target_sr=isr)
+            for ch in range(v.shape[1])
+        ], axis=-1).astype(np.float32)
+        vsr = isr
+
+    n = i_.shape[0]
     if n <= 0:
-        raise RuntimeError("Empty tracks - nothing to mix")
-    v = v[:n]
+        raise RuntimeError("Empty instrumental - nothing to mix")
+    if v.shape[0] < n:
+        v = np.pad(v, ((0, n - v.shape[0]), (0, 0)))
+    else:
+        v = v[:n]
     i_ = i_[:n]
 
     gain = 10.0 ** (vocals_gain_db / 20.0)
@@ -444,8 +458,7 @@ def combine_tracks(
     if peak > 1.0:
         mixed = mixed / peak * 0.98
 
-    sr = isr if isr == vsr else min(isr, vsr)
-    sf.write(str(out_path), mixed, sr)
+    sf.write(str(out_path), mixed, isr)
     cb("Done", 100)
     return str(out_path)
 
