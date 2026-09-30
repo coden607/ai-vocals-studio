@@ -239,9 +239,11 @@ def process_job(client: SupabaseClient | LocalQueueClient, job: dict[str, Any], 
     if quality_target not in {"draft", "studio", "pro"}:
         quality_target = "studio"
     vocals_gain_db = float(settings.get("vocalsGainDb") or settings.get("voiceGainDb") or 0.0)
-    separation = str(settings.get("separation") or os.environ.get("SONG_SEPARATION_METHOD") or "auto")
+    separation = str(settings.get("separation") or os.environ.get("SONG_SEPARATION_METHOD") or "demucs")
     if separation not in {"auto", "demucs", "center"}:
-        separation = "auto"
+        separation = "demucs"
+    if quality_target in {"studio", "pro"}:
+        separation = "demucs"
     input_files = job.get("input_files") or []
     if job_type == "local_worker_voiceover" and not text:
         raise RuntimeError("Queued job has no text.")
