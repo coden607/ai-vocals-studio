@@ -128,6 +128,29 @@ The intended production song path is **ingest → Demucs separation (when needed
 
 > Do not commit private training audio, credentials, or trained model binaries. See `AGENTS.md` for quality gates and release discipline.
 
+## Seed-VC zero-shot song conversion
+
+AI Vocals Studio supports **Seed-VC** as the preferred zero-shot audio-to-audio
+engine for authorized rap/singing voices. Seed-VC is GPL-3.0 and its upstream
+repository is archived, so its source, model weights, and private voice audio
+are **not vendored** here. Install it as a separate runtime and point the app at
+that checkout:
+
+```bash
+git clone https://github.com/Plachtaa/seed-vc.git /opt/seed-vc
+cd /opt/seed-vc
+pip install -r requirements.txt
+export SEED_VC_DIR=/opt/seed-vc
+export SEED_VC_PYTHON="$(command -v python)"
+```
+
+The adapter uses Seed-VC V1 with F0 conditioning for singing/rap, disables fp16
+for CPU compatibility, preserves source timing with length-adjust 1.0, and uses
+the voice profile's authorized reference audio. Model checkpoints are fetched
+by Seed-VC on first use and should be cached in the worker image/volume for
+production. A trained RVC model remains a second neural backend; DSP is fallback
+only.
+
 ## RVC Pro-Match Models
 
 The WORLD/DSP profile is a fallback and cannot provide near-indistinguishable
