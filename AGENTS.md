@@ -35,6 +35,13 @@ Preferred song workflow:
 Reference/TTS workflow:
 `authorized reference -> validate -> Qwen3-TTS/XTTS/hosted provider -> QA -> export`.
 
+## Precision claims
+Do not label WORLD/DSP, gTTS+DSP, or persona transforms as near-precision clones.
+Near-precision requires an authorized speaker, a neural engine that actually ran,
+a stored speaker embedding, identity cosine ≥ 0.82, and ≥15 seconds of clean
+reference audio with quality ≥ 0.55. `speaker_identity.precision_verdict` is
+the source of truth for that label.
+
 ## Quality gates
 At minimum:
 - Python compile/import sanity for changed modules.
