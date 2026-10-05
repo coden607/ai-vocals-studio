@@ -236,6 +236,11 @@ def choose_best_plan(
     backend_score = float(chosen.get("score", 50))
     target_score = 100.0 if (mode == "bed" or target_has_voice) else 45.0
     confidence = 0.50 * backend_score + 0.35 * reference_conf + 0.15 * target_score
+    fallback = chosen.get("name") == "WORLD/DSP"
+    if fallback:
+        confidence = min(confidence, 40.0)
+        chosen = dict(chosen)
+        chosen["note"] = "fallback only; not a clone. Install a neural engine and a real voice model."
     confidence = max(0.0, min(99.0, confidence))
 
     return {
@@ -246,5 +251,6 @@ def choose_best_plan(
         "target_score": target_score,
         "mode": mode,
         "reason": chosen["note"],
+        "fallback": chosen.get("name") == "WORLD/DSP",
         "engines": statuses,
     }

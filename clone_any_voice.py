@@ -152,7 +152,7 @@ def convert_target_audio(
         print(f"[ok] song conversion engine: {steps.get('conversion')}")
         score_path = output_dir / "converted_vocals.wav"
         if score_path.exists():
-            score = print_accuracy_score(profile, score_path)
+            score = print_accuracy_score(profile, score_path, engine=str(steps.get("conversion", "")), quality_target=quality_target)
             report = write_conversion_report(
                 output_dir / "quality_report.json",
                 profile=profile,
@@ -195,7 +195,7 @@ def convert_target_audio(
     if not ok:
         raise RuntimeError(msg)
     print(f"[ok] audio conversion engine: {msg}")
-    score = print_accuracy_score(profile, out_path)
+    score = print_accuracy_score(profile, out_path, engine=msg, quality_target=quality_target)
     print(f"[ok] source voiced frames: {round(voice_fraction * 100.0, 1)}%")
     report = write_conversion_report(
         output_dir / "quality_report.json",
@@ -210,14 +210,15 @@ def convert_target_audio(
     return str(out_path)
 
 
-def score_voice_accuracy(profile: dict, audio_path: str | Path) -> dict:
-    """Estimate how closely an output matches the cloned voice profile."""
+def score_voice_accuracy(profile: dict, audio_path: str | Path, engine: str | None = None, quality_target: str = "studio") -> dict:
+    """Score speaker identity. The old pitch/timbre number is kept as a legacy field only."""
     from song_converter import _load_mono, band_energy_profile, estimate_pitch
+    from speaker_identity import precision_verdict, score_identity
 
     target = profile.get("audio_profile", {})
     y = _load_mono(audio_path, 22050)
     if y.size == 0:
-        return {"score": 0.0, "pitch": 0.0, "timbre": 0.0, "energy": 0.0}
+        return {"score": 0.0, "identity": 0.0, "pitch": 0.0, "timbre": 0.0, "energy": 0.0, "legacy_heuristic": 0.0}
 
     ref_f0 = float(target.get("median_f0_hz", 0.0) or 0.0)
     out_f0, _ = estimate_pitch(y, 22050)
@@ -243,32 +244,52 @@ def score_voice_accuracy(profile: dict, audio_path: str | Path) -> dict:
     else:
         energy_score = 0.35
 
-    score = 100.0 * (
+    legacy = 100.0 * (
         0.45 * max(0.0, pitch_score)
         + 0.45 * max(0.0, timbre_score)
         + 0.10 * max(0.0, energy_score)
     )
-    confidence = min(
-        1.0,
-        max(0.0, float(target.get("reference_duration_s", target.get("duration_s", 0.0))) / 30.0),
+    identity = score_identity(reference_embedding=None, output_audio=audio_path, profile=profile)
+    duration = float(target.get("reference_duration_s", target.get("duration_s", 0.0)) or 0.0)
+    quality = target.get("reference_quality") or {}
+    quality_score = float(quality.get("overall", target.get("average_source_quality", 0.0)) or 0.0)
+    verdict = precision_verdict(
+        identity=float(identity.get("identity") or 0.0),
+        engine=engine,
+        reference_duration_s=duration,
+        reference_quality=quality_score,
+        quality_target=quality_target,
+        identity_backend=identity.get("backend"),
     )
     return {
-        "score": round(float(np.clip(score, 0.0, 100.0)), 1),
+        "score": identity.get("identity_pct", 0.0),
+        "identity": identity.get("identity", 0.0),
+        "identity_backend": identity.get("backend"),
+        "precision": verdict,
+        "legacy_heuristic": round(float(np.clip(legacy, 0.0, 100.0)), 1),
         "pitch": round(float(np.clip(pitch_score * 100.0, 0.0, 100.0)), 1),
         "timbre": round(float(np.clip(timbre_score * 100.0, 0.0, 100.0)), 1),
         "energy": round(float(np.clip(energy_score * 100.0, 0.0, 100.0)), 1),
-        "confidence": round(float(confidence * 100.0), 1),
+        "confidence": round(min(100.0, duration / 60.0 * 100.0), 1),
     }
 
 
-def print_accuracy_score(profile: dict, audio_path: str | Path) -> dict:
-    score = score_voice_accuracy(profile, audio_path)
+def print_accuracy_score(profile: dict, audio_path: str | Path, engine: str | None = None, quality_target: str = "studio") -> dict:
+    score = score_voice_accuracy(profile, audio_path, engine=engine, quality_target=quality_target)
+    verdict = score.get("precision") or {}
     print(
-        "[ok] estimated voice accuracy: "
-        f"{score['score']}% "
-        f"(pitch={score['pitch']}%, timbre={score['timbre']}%, "
-        f"energy={score['energy']}%, confidence={score['confidence']}%)"
+        "[ok] speaker identity: "
+        f"{verdict.get('identity_used')} used "
+        f"(raw={score.get('identity')} backend={score.get('identity_backend')}) "
+        f"verdict={verdict.get('level')} "
+        f"meets_{quality_target}={verdict.get('meets_quality_target')}"
     )
+    print(
+        "[note] legacy pitch/timbre heuristic: "
+        f"{score.get('legacy_heuristic')}%. It is not a clone score."
+    )
+    from speaker_identity import enforce_quality_target
+    enforce_quality_target(verdict, quality_target)
     return score
 
 
@@ -294,10 +315,11 @@ def synthesize_voiceover(
         if not candidate_path.exists() or candidate_path.stat().st_size < 100:
             failures.append(f"{engine}: empty output")
             return
-        score = score_voice_accuracy(profile, candidate_path)
+        score = score_voice_accuracy(profile, candidate_path, engine=engine, quality_target=quality_target)
+        verdict = (score.get("precision") or {}).get("level")
         print(
-            f"[ok] candidate: {engine} -> {score['score']}% "
-            f"(pitch={score['pitch']}%, timbre={score['timbre']}%)"
+            f"[ok] candidate: {engine} identity={score.get('identity')} "
+            f"verdict={verdict} legacy={score.get('legacy_heuristic')}%"
         )
         candidates.append({
             "engine": engine,
@@ -318,11 +340,11 @@ def synthesize_voiceover(
             try:
                 ok, msg = convert_vocals(source, profile, polished, output_dir, progress_cb=_progress)
                 if ok:
-                    score = score_voice_accuracy(profile, polished)
+                    score = score_voice_accuracy(profile, polished, engine=f"{item['engine']} + {msg}", quality_target=quality_target)
                     engine = f"{item['engine']} + {msg}"
                     print(
-                        f"[ok] polished candidate: {engine} -> {score['score']}% "
-                        f"(pitch={score['pitch']}%, timbre={score['timbre']}%)"
+                        f"[ok] polished candidate: {engine} identity={score.get('identity')} "
+                        f"verdict={(score.get('precision') or {}).get('level')}"
                     )
                     candidates.append({
                         "engine": engine,
@@ -427,13 +449,17 @@ def synthesize_voiceover(
     if not candidates:
         raise RuntimeError("No voice-over backend succeeded: " + " | ".join(failures))
 
-    best = max(candidates, key=lambda item: float(item["score"].get("score", 0.0)))
-    if quality_target == "pro" and str(best.get("engine", "")).startswith("gTTS"):
-        raise RuntimeError("Pro-match voice-over requires ElevenLabs, Qwen3-TTS, or XTTS; DSP-only fallback is not allowed.")
+    def _rank(item: dict) -> tuple:
+        verdict = item["score"].get("precision") or {}
+        return (
+            1 if verdict.get("meets_quality_target") else 0,
+            float(item["score"].get("identity") or 0.0),
+        )
+    best = max(candidates, key=_rank)
     final = output_dir / f"{name}_voiceover_best.wav"
     shutil.copy2(best["path"], final)
     print(f"[ok] selected best take: {best['engine']}")
-    score = print_accuracy_score(profile, final)
+    score = print_accuracy_score(profile, final, engine=str(best["engine"]), quality_target=quality_target)
     write_voiceover_report(
         output_dir / "quality_report.json",
         profile,
