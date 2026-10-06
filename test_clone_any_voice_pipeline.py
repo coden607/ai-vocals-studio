@@ -32,6 +32,26 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_studio_dsp_fails_closed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        ref = base / "ref.wav"
+        target = base / "target.wav"
+        _write_tone(ref, 150)
+        _write_tone(target, 220)
+        result = _run([
+            "--voice-source", str(ref),
+            "--name", "smoke_voice",
+            "--target-audio", str(target),
+            "--target-type", "clip",
+            "--output-dir", str(base / "out"),
+            "--quality-target", "studio",
+            "--i-have-permission",
+        ])
+        assert result.returncode != 0, result.stdout
+        assert "studio target was not met" in result.stdout
+
+
 def test_clip_conversion_writes_audio_and_report() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
@@ -47,6 +67,7 @@ def test_clip_conversion_writes_audio_and_report() -> None:
             "--target-audio", str(target),
             "--target-type", "clip",
             "--output-dir", str(out_dir),
+            "--quality-target", "draft",
             "--i-have-permission",
         ])
 
@@ -57,7 +78,8 @@ def test_clip_conversion_writes_audio_and_report() -> None:
         assert report.exists()
         data = json.loads(report.read_text())
         assert data["estimated_accuracy"]["score"] >= 0
-        assert data["estimated_accuracy"]["confidence"] > 0
+        assert data["precision"]["level"] in {"draft", "not_a_clone"}
+        assert "legacy_heuristic" in data
 
 
 def test_instrumental_clip_requires_voiceover_path() -> None:
@@ -82,6 +104,7 @@ def test_instrumental_clip_requires_voiceover_path() -> None:
 
 
 if __name__ == "__main__":
+    test_studio_dsp_fails_closed()
     test_clip_conversion_writes_audio_and_report()
     test_instrumental_clip_requires_voiceover_path()
     print("clone_any_voice pipeline smoke tests passed")

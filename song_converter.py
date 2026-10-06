@@ -428,13 +428,16 @@ def write_conversion_report(
         "engine": engine,
         "plan": plan or {},
         "estimated_accuracy": score,
+        "speaker_identity": score.get("identity"),
+        "precision": score.get("precision"),
+        "legacy_heuristic": score.get("legacy_heuristic"),
         "reference_quality": profile.get("audio_profile", {}).get("reference_quality", {}),
         "average_source_quality": profile.get("audio_profile", {}).get("average_source_quality"),
         "score_notes": [
-            "Score compares pitch, broad timbre envelope, and loudness to the cloned profile.",
-            "It is an engineering estimate, not proof of human-perceived identity.",
-            "RVC or neural TTS backends generally outperform DSP fallback on real voices.",
-            "Reference quality measures voiced content, noise floor, clipping, and usable duration.",
+            "Headline score is speaker-identity cosine similarity, not pitch or loudness.",
+            "legacy_heuristic is the old pitch/timbre/RMS number and is not a clone score.",
+            "WORLD/DSP and gTTS cannot meet studio or pro.",
+            "Near-precision requires a neural engine, identity >= 0.82, and at least 15s of clean reference.",
         ],
     }
     report_path = Path(report_path)

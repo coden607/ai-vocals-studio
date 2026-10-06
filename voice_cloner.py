@@ -421,6 +421,12 @@ def build_voice_profile(
             },
         }
 
+        try:
+            from speaker_identity import attach_embedding_to_profile
+            profile = attach_embedding_to_profile(profile)
+        except Exception:
+            pass
+
         with open(voice_dir / "voice_profile.json", "w") as f:
             json.dump(profile, f, indent=2)
 
@@ -562,6 +568,12 @@ def build_voice_profile_from_sources(
                 "rvc": bool(rvc_available),
             },
         }
+
+        try:
+            from speaker_identity import attach_embedding_to_profile
+            profile = attach_embedding_to_profile(profile)
+        except Exception:
+            pass
 
         with open(voice_dir / "voice_profile.json", "w") as f:
             json.dump(profile, f, indent=2)
