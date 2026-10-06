@@ -1,3 +1,5 @@
+Shared agent rules and skills live in [AGENTS.md](AGENTS.md). Read that before editing.
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
