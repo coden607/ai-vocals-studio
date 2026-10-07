@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Vocals Studio</title>
+    <meta name="description" content="Vercel-hosted authorized voice cloning and voice-over generator.">
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c0e0d;
+        --panel: #151a17;
+        --panel-2: #1d251f;
+        --text: #eef7f1;
+        --muted: #9eb0a5;
+        --line: #2b3830;
+        --accent: #19e68c;
+        --accent-2: #d7ff65;
+        --danger: #ff7777;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 18% 10%, rgba(25, 230, 140, 0.18), transparent 34%),
+          radial-gradient(circle at 85% 20%, rgba(215, 255, 101, 0.12), transparent 28%),
+          linear-gradient(135deg, #080a09, var(--bg));
+        color: var(--text);
+      }
+      main { width: min(1160px, calc(100% - 36px)); margin: 0 auto; padding: 46px 0 36px; }
+      .hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); gap: 22px; align-items: end; margin-bottom: 22px; }
+      h1 { margin: 0; font-size: clamp(44px, 8vw, 92px); line-height: 0.88; letter-spacing: -0.07em; }
+      .lede { margin: 18px 0 0; color: var(--muted); font-size: 18px; line-height: 1.55; max-width: 760px; }
+      .badge { display: inline-flex; gap: 8px; align-items: center; padding: 8px 11px; border: 1px solid var(--line); border-radius: 999px; background: rgba(21, 26, 23, 0.72); color: var(--accent-2); font-weight: 700; }
+      .grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 18px; }
+      .card { border: 1px solid var(--line); border-radius: 22px; background: rgba(21, 26, 23, 0.88); box-shadow: 0 24px 90px rgba(0, 0, 0, 0.28); padding: 22px; }
+      label { display: block; margin: 0 0 8px; color: var(--muted); font-size: 13px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+      input, textarea, select { width: 100%; border: 1px solid var(--line); border-radius: 14px; background: #0f1311; color: var(--text); padding: 13px 14px; font: inherit; }
+      input[type="file"] { padding: 11px; }
+      textarea { min-height: 140px; resize: vertical; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+      .field { margin-bottom: 16px; }
+      .check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; color: var(--muted); line-height: 1.45; }
+      .check input { width: auto; margin-top: 3px; }
+      button { width: 100%; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #07100b; cursor: pointer; font: inherit; font-weight: 900; padding: 15px 18px; }
+      button:disabled { cursor: not-allowed; filter: grayscale(1); opacity: 0.55; }
+      .status { margin-top: 14px; color: var(--muted); min-height: 24px; white-space: pre-wrap; }
+      .status.error { color: var(--danger); }
+      .result audio { width: 100%; margin-top: 14px; }
+      .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+      .metric { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 13px; }
+      .metric strong { display: block; font-size: 22px; }
+      .metric span { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 800; }
+      .small { color: var(--muted); font-size: 13px; line-height: 1.5; }
+      .link { color: var(--accent-2); display: inline-block; margin-top: 8px; }
+      .readiness { margin: 10px 0 0; border-radius: 14px; border: 1px solid var(--line); background: #101411; padding: 12px; }
+      .readiness.good { border-color: rgba(25, 230, 140, 0.55); }
+      .readiness.warn { border-color: rgba(215, 255, 101, 0.55); }
+      .readiness.bad { border-color: rgba(255, 119, 119, 0.55); }
+      .jobs { margin-top: 16px; display: grid; gap: 9px; }
+      .job { border: 1px solid var(--line); border-radius: 13px; padding: 10px 12px; background: #101411; }
+      .job strong { display: block; }
+      .job span { color: var(--muted); font-size: 12px; }
+      .capabilities { display: grid; gap: 6px; margin-top: 10px; }
+      .capability { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 7px 0; }
+      .capability:last-child { border-bottom: 0; }
+      @media (max-width: 860px) { .hero, .grid, .row { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div>
+          <span class="badge">Vercel native · no Streamlit</span>
+          <h1>Voice-over machine</h1>
+          <p class="lede">
+            Upload authorized voice samples, enter the line, and generate a cloned voice-over from the Vercel app.
+            Heavy local XTTS/RVC engines remain in the repo for Docker/local use; this hosted version uses cloud voice infrastructure that fits Vercel serverless.
+          </p>
+        </div>
+        <div class="card small">
+          <strong>Accuracy rule:</strong> clean, single-speaker WAV/FLAC samples produce the best clones.
+          Instant cloud cloning is fast; professional fine-tuned voice models are still the path for the closest production match.
+        </div>
+      </section>
+      <section class="grid">
+        <form id="voiceForm" class="card">
+          <div class="row">
+            <div class="field">
+              <label for="apiKey">ElevenLabs API key</label>
+              <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="Uses Vercel env if blank">
+            </div>
+            <div class="field">
+              <label for="voiceName">Voice label</label>
+              <input id="voiceName" name="voiceName" value="Authorized Voice" maxlength="80">
+            </div>
+          </div>
+          <div class="field">
+            <label for="processingMode">Processing mode</label>
+            <select id="processingMode" name="processingMode">
+              <option value="instant" selected>Instant Vercel cloud voice-over</option>
+              <option value="worker">Queue full local worker job via Supabase</option>
+            </select>
+            <p class="small">Instant mode returns audio immediately. Worker mode queues the job for a local/GPU/container worker running Qwen, XTTS, RVC, Demucs, and DSP.</p>
+          </div>
+          <div class="field">
+            <label for="taskMode">Output task</label>
+            <select id="taskMode" name="taskMode">
+              <option value="voiceover" selected>Generate text voice-over</option>
+              <option value="song_replace">Replace vocals in song/audio</option>
+              <option value="clip_convert">Convert spoken/rap clip voice</option>
+              <option value="rvc_train">Train and register RVC model</option>
+            </select>
+            <p class="small">Replacement/conversion and RVC training jobs use the queued worker so the app can run local/GPU processing.</p>
+          </div>
+          <div class="field">
+            <label for="voiceFiles">Voice samples</label>
+            <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*" multiple required>
+            <p class="small">Use clean single-speaker WAV/FLAC. Studio-match mode requires at least 20 seconds; 60+ seconds is better.</p>
+            <div id="readiness" class="readiness small">Upload samples to check clone readiness.</div>
+          </div>
+          <div class="field" id="scriptField">
+            <label for="scriptText">Voice-over text</label>
+            <textarea id="scriptText" name="scriptText" required placeholder="Type what the cloned voice should say..."></textarea>
+          </div>
+          <div class="field" id="targetField" hidden>
+            <label for="targetFile">Song/audio to replace or convert</label>
+            <input id="targetFile" name="targetFile" type="file" accept="audio/*">
+            <p class="small">For songs, upload audio with a vocal to replace. For beats/instrumentals with no vocal, use text voice-over and the optional browser mix bed below.</p>
+          </div>
+          <div class="field" id="separationField" hidden>
+            <label for="separation">Song vocal separation</label>
+            <select id="separation" name="separation">
+              <option value="auto" selected>Auto: best available</option>
+              <option value="demucs">Demucs: best quality, slower first run</option>
+              <option value="center">Center-channel: fastest test mode</option>
+            </select>
+            <p class="small">Use center-channel for quick checks. Use Demucs for better real song separation after the model is cached on the worker.</p>
+          </div>
+          <div id="proMatchNotice" class="readiness small" hidden>
+            Pro-match replacement requires a trained RVC model on the worker for this voice. Without RVC, the worker will stop instead of returning a weaker DSP clone.
+          </div>
+          <div class="field" id="bedField">
+            <label for="bedFile">Optional beat/song bed for browser mix</label>
+            <input id="bedFile" name="bedFile" type="file" accept="audio/*">
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="qualityTarget">Quality target</label>
+              <select id="qualityTarget" name="qualityTarget">
+                <option value="pro" selected>Pro-match: strict, near-perfect target</option>
+                <option value="studio">Studio: balanced quality gate</option>
+                <option value="draft">Draft: allow rough tests</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="stability">Stability</label>
+              <select id="stability" name="stability">
+                <option value="0.38">Expressive</option>
+                <option value="0.62" selected>Studio match</option>
+                <option value="0.76">Very stable</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="similarity">Similarity boost</label>
+              <select id="similarity" name="similarity">
+                <option value="0.78">Natural</option>
+                <option value="0.9">High match</option>
+                <option value="0.97" selected>Maximum match</option>
+              </select>
+            </div>
+          </div>
+          <div class="field check">
+            <input id="studioQuality" name="studioQuality" type="checkbox" checked>
+            <span>Block low-quality samples instead of generating a weak clone.</span>
+          </div>
+          <div class="field check">
+            <input id="permission" name="permission" type="checkbox" required>
+            <span>I own this voice or have explicit written permission/license to clone and synthesize it.</span>
+          </div>
+          <div class="field check">
+            <input id="deleteVoice" name="deleteVoice" type="checkbox" checked>
+            <span>Delete the temporary cloud voice after generation.</span>
+          </div>
+          <button id="generateBtn" type="submit">Clone Voice + Generate Voice-Over</button>
+          <div id="status" class="status"></div>
+        </form>
+        <aside class="card result">
+          <h2>Output</h2>
+          <p class="small">The generated voice-over appears here. If you upload a bed, the browser also creates a rough mixed preview without needing Streamlit.</p>
+          <audio id="voiceAudio" controls hidden></audio>
+          <a id="downloadVoice" class="link" hidden download="voiceover.mp3">Download voice-over MP3</a>
+          <audio id="mixAudio" controls hidden></audio>
+          <a id="downloadMix" class="link" hidden download="voiceover-mix.wav">Download browser mix WAV</a>
+          <div class="metrics">
+            <div class="metric"><strong id="engineMetric">-</strong><span>Engine</span></div>
+            <div class="metric"><strong id="qualityMetric">-</strong><span>Input fit</span></div>
+            <div class="metric"><strong id="filesMetric">-</strong><span>Samples</span></div>
+          </div>
+          <p class="small">Hosted Vercel generation uses ElevenLabs IVC + TTS. Worker jobs use Supabase in production or local filesystem storage for local/self-hosted runs.</p>
+          <h3>Recent jobs</h3>
+          <div id="supabaseStatus" class="small">Checking storage...</div>
+          <div id="storageHealth" class="small">Checking storage health...</div>
+          <div id="capabilities" class="capabilities small">Checking engines...</div>
+          <div id="jobs" class="jobs"></div>
+        </aside>
+      </section>
+    </main>
+    <script>
+      const form = document.getElementById("voiceForm");
+      const statusEl = document.getElementById("status");
+      const button = document.getElementById("generateBtn");
+      const voiceAudio = document.getElementById("voiceAudio");
+      const mixAudio = document.getElementById("mixAudio");
+      const downloadVoice = document.getElementById("downloadVoice");
+      const downloadMix = document.getElementById("downloadMix");
+      let latestReferenceMetrics = null;
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.classList.toggle("error", isError);
+      }
+      async function readJsonResponse(response, action = "Request") {
+        const text = await response.text();
+        let payload;
+        try {
+          payload = text ? JSON.parse(text) : {};
+        } catch {
+          const detail = text.replace(/\s+/g, " ").trim().slice(0, 180);
+          throw new Error(`${action} failed (${response.status}): ${detail || "the server returned a non-JSON response"}`);
+        }
+        if (!response.ok || !payload.ok) throw new Error(payload.error || `${action} failed (${response.status})`);
+        return payload;
+      }
+      function uploadBytes(files, targetFile) {
+        return files.reduce((sum, file) => sum + file.size, 0) + (targetFile?.size || 0);
+      }
+      function readFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      function estimateFit(files) {
+        const totalMb = files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024);
+        const countScore = Math.min(1, files.length / 3);
+        const sizeScore = Math.min(1, totalMb / 3);
+        return Math.round((0.45 * countScore + 0.55 * sizeScore) * 100);
+      }
+      async function analyzeReferenceFiles(files) {
+        const audioCtx = new AudioContext();
+        const perFile = [];
+        let totalDurationS = 0;
+        let weightedRms = 0;
+        let maxClippingFraction = 0;
+        for (const file of files) {
+          const arrayBuffer = await file.arrayBuffer();
+          const buffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+          const channel = buffer.getChannelData(0);
+          let sum = 0;
+          let clipped = 0;
+          const stride = Math.max(1, Math.floor(channel.length / 220500));
+          let samples = 0;
+          for (let i = 0; i < channel.length; i += stride) {
+            const value = channel[i];
+            sum += value * value;
+            if (Math.abs(value) >= 0.985) clipped++;
+            samples++;
+          }
+          const rms = Math.sqrt(sum / Math.max(1, samples));
+          const clippingFraction = clipped / Math.max(1, samples);
+          totalDurationS += buffer.duration;
+          weightedRms += rms * buffer.duration;
+          maxClippingFraction = Math.max(maxClippingFraction, clippingFraction);
+          perFile.push({ name: file.name, durationS: Number(buffer.duration.toFixed(2)), rms: Number(rms.toFixed(5)), clippingFraction: Number(clippingFraction.toFixed(5)) });
+        }
+        weightedRms = weightedRms / Math.max(1, totalDurationS);
+        const durationScore = Math.min(1, totalDurationS / 60);
+        const rmsScore = Math.min(1, weightedRms / 0.08);
+        const countScore = Math.min(1, files.length / 3);
+        const clippingPenalty = Math.min(0.4, maxClippingFraction * 20);
+        const fitScore = Math.round(Math.max(0, Math.min(1, 0.48 * durationScore + 0.24 * rmsScore + 0.28 * countScore - clippingPenalty)) * 100);
+        return {
+          fitScore,
+          totalDurationS: Number(totalDurationS.toFixed(2)),
+          averageRms: Number(weightedRms.toFixed(5)),
+          maxClippingFraction: Number(maxClippingFraction.toFixed(5)),
+          files: perFile,
+        };
+      }
+      function renderReadiness(metrics) {
+        const box = document.getElementById("readiness");
+        if (!metrics) {
+          box.className = "readiness small";
+          box.textContent = "Upload samples to check clone readiness.";
+          return;
+        }
+        const level = metrics.fitScore >= 78 ? "good" : metrics.fitScore >= 60 ? "warn" : "bad";
+        const recommendation = metrics.totalDurationS < 60
+          ? "Add more clean voice if possible; 60+ seconds improves match."
+          : "Reference duration is strong.";
+        const clipping = metrics.maxClippingFraction > 0.02
+          ? " Clipping detected; use a cleaner lower-gain recording."
+          : "";
+        box.className = `readiness small ${level}`;
+        box.textContent = `Clone readiness: ${metrics.fitScore}% · ${metrics.totalDurationS}s voice · RMS ${metrics.averageRms}.${clipping} ${recommendation}`;
+      }
+      function qualityTargetReasons(metrics, target) {
+        if (!metrics || target === "draft" || !document.getElementById("studioQuality").checked) return [];
+        const reasons = [];
+        const fileCount = Array.isArray(metrics.files) ? metrics.files.length : 0;
+        if (metrics.totalDurationS < 20) reasons.push("Upload at least 20 seconds of clean single-speaker voice.");
+        if (metrics.fitScore < 60) reasons.push("Studio mode requires input fit of 60% or higher.");
+        if (metrics.maxClippingFraction > 0.02) reasons.push("Samples appear clipped/distorted.");
+        if (target === "pro") {
+          if (metrics.totalDurationS < 90) reasons.push("Pro-match requires 90+ seconds of clean authorized reference voice.");
+          if (fileCount < 3) reasons.push("Pro-match requires at least 3 separate reference clips.");
+          if (metrics.fitScore < 85) reasons.push("Pro-match requires input fit of 85% or higher.");
+          if (metrics.maxClippingFraction > 0.005) reasons.push("Pro-match needs unclipped lower-gain audio.");
+        }
+        return reasons;
+      }
+      function syncTaskUi() {
+        const taskMode = document.getElementById("taskMode").value;
+        const isVoiceover = taskMode === "voiceover";
+        const isTraining = taskMode === "rvc_train";
+        const isPro = document.getElementById("qualityTarget").value === "pro" && document.getElementById("studioQuality").checked;
+        const scriptField = document.getElementById("scriptField");
+        const targetField = document.getElementById("targetField");
+        const bedField = document.getElementById("bedField");
+        const separationField = document.getElementById("separationField");
+        const proMatchNotice = document.getElementById("proMatchNotice");
+        const processingMode = document.getElementById("processingMode");
+        const scriptText = document.getElementById("scriptText");
+        const targetFile = document.getElementById("targetFile");
+        scriptField.hidden = !isVoiceover;
+        targetField.hidden = isVoiceover || isTraining;
+        separationField.hidden = taskMode !== "song_replace";
+        proMatchNotice.hidden = isVoiceover || isTraining || !isPro;
+        bedField.hidden = !isVoiceover;
+        scriptText.required = isVoiceover;
+        targetFile.required = !isVoiceover && !isTraining;
+        if (!isVoiceover) processingMode.value = "worker";
+        processingMode.disabled = !isVoiceover;
+        button.textContent = isTraining
+          ? "Validate + Train RVC Model"
+          : isVoiceover ? "Clone Voice + Generate Voice-Over" : "Clone Voice + Replace Target Vocal";
+      }
+      async function loadJobs() {
+        const status = document.getElementById("supabaseStatus");
+        const healthEl = document.getElementById("storageHealth");
+        const jobsEl = document.getElementById("jobs");
+        try {
+          const capabilitiesResponse = await fetch("/api/capabilities");
+          const capabilities = await capabilitiesResponse.json();
+          const capabilityItems = [...(capabilities.hosted || []), ...(capabilities.worker || [])];
+          document.getElementById("capabilities").innerHTML = `<strong>Engine stack</strong>${capabilityItems.map((item) => `<div class="capability"><span>${item.name}</span><span>${item.available === false ? "not configured" : item.mode}</span></div>`).join("")}`;
+          const healthResponse = await fetch("/api/storage-health");
+          const health = await readJsonResponse(healthResponse, "Storage health check");
+          if (health.ok) {
+            healthEl.textContent = health.provider === "supabase"
+              ? `Storage health: Supabase reachable (${health.host}).`
+              : "Storage health: local filesystem ready.";
+          } else {
+            healthEl.textContent = `Storage health warning: ${health.error || "storage is not reachable"}`;
+          }
+          const response = await fetch("/api/jobs");
+          const payload = await readJsonResponse(response, "Job history request");
+          const providerText = payload.provider === "supabase" ? "Supabase persistence enabled." : "Local filesystem storage enabled.";
+          status.textContent = payload.warning ? `${providerText} Job history warning: ${payload.warning}` : providerText;
+          jobsEl.innerHTML = (payload.jobs || []).map((job) => {
+            const link = job.output_url ? `<a class="link" href="${job.output_url}" target="_blank" rel="noreferrer">Open stored audio</a>` : "";
+            const report = job.report || {};
+            const stage = report.stage || report.quality_target || "queued";
+            const model = report.model_url || report.model_object;
+            const modelLink = model && /^https?:\/\//.test(model) ? `<a class="link" href="${model}" target="_blank" rel="noreferrer">Open trained model</a>` : "";
+            return `<div class="job"><strong>${job.voice_name || "Voice-over"} · ${job.status}</strong><span>${new Date(job.created_at).toLocaleString()} · ${job.engine || "unknown"} · stage: ${stage}</span>${link}${modelLink}</div>`;
+          }).join("") || "<p class=\"small\">No jobs yet.</p>";
+        } catch (err) {
+          status.textContent = `Could not load jobs: ${err.message || err}`;
+        }
+      }
+      async function mixWithBed(voiceBlob, bedFile) {
+        const ctx = new OfflineAudioContext(2, 1, 44100);
+        const [voiceBuf, bedBuf] = await Promise.all([
+          voiceBlob.arrayBuffer().then((buf) => ctx.decodeAudioData(buf)),
+          bedFile.arrayBuffer().then((buf) => ctx.decodeAudioData(buf)),
+        ]);
+        const sr = 44100;
+        const offline = new OfflineAudioContext(2, Math.ceil(Math.max(voiceBuf.duration, bedBuf.duration) * sr), sr);
+        const bed = offline.createBufferSource();
+        bed.buffer = bedBuf;
+        const bedGain = offline.createGain();
+        bedGain.gain.value = 0.72;
+        bed.connect(bedGain).connect(offline.destination);
+        const voice = offline.createBufferSource();
+        voice.buffer = voiceBuf;
+        voice.connect(offline.destination);
+        bed.start(0);
+        voice.start(0);
+        return audioBufferToWav(await offline.startRendering());
+      }
+      function audioBufferToWav(buffer) {
+        const channels = buffer.numberOfChannels;
+        const out = new ArrayBuffer(buffer.length * channels * 2 + 44);
+        const view = new DataView(out);
+        const write = (offset, string) => { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); };
+        write(0, "RIFF"); view.setUint32(4, 36 + buffer.length * channels * 2, true); write(8, "WAVE");
+        write(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
+        view.setUint32(24, buffer.sampleRate, true); view.setUint32(28, buffer.sampleRate * channels * 2, true);
+        view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); write(36, "data");
+        view.setUint32(40, buffer.length * channels * 2, true);
+        let offset = 44;
+        for (let i = 0; i < buffer.length; i++) {
+          for (let ch = 0; ch < channels; ch++) {
+            const sample = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+            offset += 2;
+          }
+        }
+        return new Blob([out], { type: "audio/wav" });
+      }
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const files = [...document.getElementById("voiceFiles").files];
+        const bedFile = document.getElementById("bedFile").files[0];
+        const taskMode = document.getElementById("taskMode").value;
+        const isVoiceover = taskMode === "voiceover";
+        const isTraining = taskMode === "rvc_train";
+        const targetFile = document.getElementById("targetFile").files[0];
+        if (!files.length) return setStatus("Upload at least one voice sample.", true);
+        if (!isVoiceover && !isTraining && !targetFile) return setStatus("Upload the song/audio that should receive the cloned voice.", true);
+        const uploadSize = uploadBytes(files, targetFile);
+        // Base64 plus JSON metadata expands the request; stay below Vercel's platform limit.
+        if (uploadSize > 3 * 1024 * 1024) {
+          return setStatus("These files are too large for the hosted Vercel upload path. Use FLAC/MP3 or run the local/GPU worker for longer training sets and songs.", true);
+        }
+        button.disabled = true;
+        voiceAudio.hidden = true; mixAudio.hidden = true; downloadVoice.hidden = true; downloadMix.hidden = true;
+        try {
+          setStatus("Analyzing reference quality...");
+          latestReferenceMetrics = await analyzeReferenceFiles(files);
+          renderReadiness(latestReferenceMetrics);
+          const qualityTarget = document.getElementById("studioQuality").checked ? document.getElementById("qualityTarget").value : "draft";
+          const qualityReasons = qualityTargetReasons(latestReferenceMetrics, qualityTarget);
+          if (qualityReasons.length) throw new Error(`${qualityTarget === "pro" ? "Pro-match" : "Studio-match"} needs better voice samples. ${qualityReasons.join(" ")}`);
+          setStatus("Reading voice samples...");
+          const encoded = [];
+          for (const file of files) encoded.push({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: await readFileAsBase64(file) });
+          const targetPayload = targetFile ? { name: targetFile.name, type: targetFile.type || "application/octet-stream", size: targetFile.size, data: await readFileAsBase64(targetFile) } : null;
+          const processingMode = isVoiceover ? document.getElementById("processingMode").value : "worker";
+          setStatus(isTraining ? "Queueing RVC training job for the local worker..." : processingMode === "worker" ? "Queueing full local worker job in Supabase..." : "Cloning voice and generating voice-over on Vercel...");
+          const response = await fetch(processingMode === "worker" ? "/api/queue-job" : "/api/clone-and-speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              apiKey: document.getElementById("apiKey").value,
+              voiceName: document.getElementById("voiceName").value,
+              taskMode,
+              text: isVoiceover ? document.getElementById("scriptText").value : "",
+              permission: document.getElementById("permission").checked,
+              deleteVoice: document.getElementById("deleteVoice").checked,
+              stability: Number(document.getElementById("stability").value),
+              similarity: Number(document.getElementById("similarity").value),
+              studioQuality: document.getElementById("studioQuality").checked,
+              qualityTarget,
+              separation: document.getElementById("separation").value,
+              referenceMetrics: latestReferenceMetrics,
+              files: encoded,
+              targetFile: targetPayload,
+            }),
+          });
+          const payload = await readJsonResponse(response, "Voice generation request");
+          if (processingMode === "worker") {
+            document.getElementById("engineMetric").textContent = "Queued worker";
+            document.getElementById("qualityMetric").textContent = `${latestReferenceMetrics?.fitScore || estimateFit(files)}%`;
+            document.getElementById("filesMetric").textContent = String(files.length);
+            const provider = payload.provider === "supabase" ? "Supabase" : "local storage";
+            setStatus(`Queued job ${payload.job?.id || ""} in ${provider}. Start supabase_worker.py locally/container-side to process it.`);
+            loadJobs();
+            return;
+          }
+          const voiceBlob = await fetch(`data:${payload.mediaType};base64,${payload.audioBase64}`).then((r) => r.blob());
+          const voiceUrl = URL.createObjectURL(voiceBlob);
+          voiceAudio.src = voiceUrl; voiceAudio.hidden = false;
+          downloadVoice.href = voiceUrl; downloadVoice.hidden = false;
+          document.getElementById("engineMetric").textContent = payload.engine;
+          document.getElementById("qualityMetric").textContent = `${latestReferenceMetrics?.fitScore || estimateFit(files)}%`;
+          document.getElementById("filesMetric").textContent = String(files.length);
+          if (bedFile) {
+            setStatus("Creating browser-side beat/song mix...");
+            const mixBlob = await mixWithBed(voiceBlob, bedFile);
+            const mixUrl = URL.createObjectURL(mixBlob);
+            mixAudio.src = mixUrl; mixAudio.hidden = false;
+            downloadMix.href = mixUrl; downloadMix.hidden = false;
+          }
+          setStatus(`Ready. Voice ID ${payload.voiceId}${payload.deleted ? " was deleted after generation." : " was kept in ElevenLabs."}`);
+          loadJobs();
+        } catch (err) {
+          setStatus(err.message || String(err), true);
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.getElementById("voiceFiles").addEventListener("change", async (event) => {
+        const files = [...event.target.files];
+        if (!files.length) return renderReadiness(null);
+        try {
+          latestReferenceMetrics = await analyzeReferenceFiles(files);
+          renderReadiness(latestReferenceMetrics);
+        } catch (err) {
+          latestReferenceMetrics = null;
+          const box = document.getElementById("readiness");
+          box.className = "readiness small bad";
+          box.textContent = `Could not analyze audio: ${err.message || err}`;
+        }
+      });
+      document.getElementById("taskMode").addEventListener("change", syncTaskUi);
+      document.getElementById("qualityTarget").addEventListener("change", syncTaskUi);
+      document.getElementById("studioQuality").addEventListener("change", syncTaskUi);
+      syncTaskUi();
+      loadJobs();
+    </script>
+  </body>
+</html>

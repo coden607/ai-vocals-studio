@@ -1,0 +1,1 @@
+{"name":"ai-vocals-studio-frontdoor","version":"1.0.0","private":true,"description":"Static frontdoor for AI Vocals Studio","scripts":{"start":"python3 -m http.server 3000"}}
