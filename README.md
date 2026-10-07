@@ -1,3 +1,7 @@
+## Shipped voice contract
+
+`clone_any_voice.py` is the production CLI. Studio and pro fail if the only engine is WORLD/DSP or gTTS. The headline score is speaker identity. The old pitch/timbre number is `legacy_heuristic` and is not accuracy. Install neural engines with `./install_voice_engines.sh` (includes Resemblyzer for speaker verification). A real clone still needs an authorized `rvc_model.pth` or a configured Qwen/XTTS/ElevenLabs backend. Pacaveli has no trained checkpoint in this repo.
+
 # 🎤 AI Vocals Studio - Modern Edition
 
 A beautiful, dark-themed AI voice cloning and generation application with advanced features and modern UI.
