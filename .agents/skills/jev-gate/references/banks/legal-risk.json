@@ -1,0 +1,30 @@
+{
+  "name": "legal-risk",
+  "questions": {
+    "file_ready": {
+      "type": "noul",
+      "instructions": "Is this text safe to treat as filing-ready rather than a draft?",
+      "criteria": {
+        "true": "Captions, parties, index, and cited authorities are known and checked.",
+        "false": "Placeholders, missing cites, or unverified facts remain."
+      }
+    },
+    "need_cite": {
+      "type": "noul",
+      "instructions": "Does the draft assert a legal rule that still needs a real citation?",
+      "criteria": {
+        "true": "A statute, rule, or case is claimed without a verified cite.",
+        "false": "Procedural scaffolding only, or cites are already attached."
+      }
+    },
+    "role": {
+      "type": "choice",
+      "instructions": "Whose voice is this document?",
+      "criteria": {
+        "nonparty_server": "Affiant or process server who is not the claimant",
+        "claimant": "The party seeking relief",
+        "cover_letter": "Transmittal to clerk or opposing counsel"
+      }
+    }
+  }
+}

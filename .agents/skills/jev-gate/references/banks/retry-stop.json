@@ -1,0 +1,23 @@
+{
+  "name": "retry-stop",
+  "questions": {
+    "next_act": {
+      "type": "choice",
+      "instructions": "After this failure, what is the next act?",
+      "criteria": {
+        "retry_same": "Same command likely works after a transient fault",
+        "change_tactic": "Need a different approach or tool",
+        "gather_facts": "Missing environment fact caused the miss",
+        "stop": "Repeating will not help"
+      }
+    },
+    "repeat_failure": {
+      "type": "noul",
+      "instructions": "Is this the same failure repeating?",
+      "criteria": {
+        "true": "Same error signature as a prior attempt",
+        "false": "New error or first attempt"
+      }
+    }
+  }
+}

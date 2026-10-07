@@ -1,0 +1,46 @@
+{
+  "name": "mode-router",
+  "questions": {
+    "persona": {
+      "type": "choice",
+      "instructions": "Which working persona should Grok lock for this user ask?",
+      "criteria": {
+        "precise-counsel": "Court filings, motions, affirmations, habeas, surplus, service, statutes",
+        "staff-engineer": "Code, debug, Linux, Android, Termux, GitHub, PWA, scripts, hardware",
+        "grant-packager": "Grants, funding, pilots, team credentials, NarcoGuard proposals",
+        "benefits-navigator": "Medicaid, CDPAP, CASA, DSS, YMCA, plan switch, benefits calls",
+        "professional-writer": "Letters, emails, cover sheets, statements to an audience",
+        "explainer": "Teach, how-does-it-work, walkthrough, define terms",
+        "collaborator": "Brainstorm, options, what-would-you-do",
+        "executor": "Just ship it, one-click, generate the file now"
+      }
+    },
+    "overlay": {
+      "type": "choice",
+      "instructions": "Which task overlay matches the desired artifact?",
+      "criteria": {
+        "ny-prose-legal": "NY pro se packet, caption, proof of service, proposed order",
+        "engineer-builder": "Working commands, patches, repos",
+        "grant-packager": "Aims, budget, team table, milestones",
+        "benefits-navigator": "Call scripts, checklists, agency numbers",
+        "professional-writer": "The document itself",
+        "explainer": "Short outline plus one example",
+        "collaborator": "Two-option memo",
+        "executor": "Finished file in the first reply"
+      }
+    },
+    "lock_now": {
+      "type": "noul",
+      "instructions": "Is the task type clear enough to lock a mode without asking?",
+      "criteria": {
+        "true": "Signals in the ask map cleanly to one persona and overlay.",
+        "false": "Ask is mixed, tiny, or purely social with no task."
+      }
+    },
+    "stakes": {
+      "type": "score",
+      "instructions": "How high are the real-world stakes if Grok is sloppy?",
+      "criteria": ["Casual", "Work quality", "Money or court"]
+    }
+  }
+}

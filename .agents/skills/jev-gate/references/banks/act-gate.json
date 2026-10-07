@@ -1,0 +1,28 @@
+{
+  "name": "act-gate",
+  "questions": {
+    "lane": {
+      "type": "choice",
+      "instructions": "What should happen next?",
+      "criteria": {
+        "act": "Enough facts to do the work now",
+        "gather": "One missing fact would change the work",
+        "ask_human": "Irreversible, low confidence, or safety-sensitive",
+        "stop": "Wrong task, user changed subject, or already done"
+      }
+    },
+    "irreversible": {
+      "type": "noul",
+      "instructions": "Would the next step send, file, post, spend, or serve something that is hard to undo?",
+      "criteria": {
+        "true": "Outbound filing, payment, public post, legal service",
+        "false": "Local draft, sandbox command, explanation"
+      }
+    },
+    "evidence": {
+      "type": "score",
+      "instructions": "Are the needed facts in the current state?",
+      "criteria": ["Mostly missing", "Partial", "Enough to act"]
+    }
+  }
+}
