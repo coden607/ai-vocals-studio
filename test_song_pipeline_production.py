@@ -78,3 +78,42 @@ def test_change_song_always_separates_before_conversion_and_remix(monkeypatch, t
     assert steps["separation"] == "demucs"
     assert steps["conversion"].startswith("Seed-VC")
     assert Path(out).exists()
+
+
+def test_strict_demucs_rejects_missing_instrumental_stem(monkeypatch, tmp_path):
+    source = tmp_path / "song.wav"
+    _tone(source, 44100, 0.25, 220)
+    monkeypatch.setattr(sc, "_ensure_demucs", lambda *_: True)
+
+    def fake_run(cmd, **kwargs):
+        demucs_root = tmp_path / "work" / "demucs" / "htdemucs" / "song"
+        demucs_root.mkdir(parents=True, exist_ok=True)
+        _tone(demucs_root / "vocals.wav", 44100, 0.25, 220)
+        class Result:
+            returncode = 0
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr(sc.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="no instrumental stem"):
+        sc.separate_vocals(source, tmp_path / "work", "demucs", allow_fallback=False)
+
+
+def test_strict_demucs_rejects_empty_instrumental_stem(monkeypatch, tmp_path):
+    source = tmp_path / "song.wav"
+    _tone(source, 44100, 0.25, 220)
+    monkeypatch.setattr(sc, "_ensure_demucs", lambda *_: True)
+
+    def fake_run(cmd, **kwargs):
+        demucs_root = tmp_path / "work" / "demucs" / "htdemucs" / "song"
+        demucs_root.mkdir(parents=True, exist_ok=True)
+        _tone(demucs_root / "vocals.wav", 44100, 0.25, 220)
+        (demucs_root / "no_vocals.wav").write_bytes(b"")
+        class Result:
+            returncode = 0
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr(sc.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="empty/corrupt stem"):
+        sc.separate_vocals(source, tmp_path / "work", "demucs", allow_fallback=False)
