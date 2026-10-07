@@ -77,3 +77,7 @@ The model name shown in the UI is the directory name or file stem.
 - EQ gain simulation
 
 Model names are matched against persona keys (`"2pac"`, `"male"`, `"female"`, `"robot"`, `"default"`).
+
+## Shared agent skills
+
+Read and follow `AGENTS.md` before planning, editing, testing or committing. Use the complete canonical https://github.com/coden607/skills library under its shared-skills policy.
