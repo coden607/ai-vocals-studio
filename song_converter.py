@@ -153,13 +153,32 @@ def separate_vocals(
                 return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
             vocals_src = demucs_out[0]
             inst_src = vocals_src.with_name("no_vocals.wav")
+            if not inst_src.exists():
+                cb("demucs produced no instrumental stem", 0)
+                if not allow_fallback:
+                    raise RuntimeError("Demucs is required but produced no instrumental stem")
+                return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
+
+            # Validate BOTH neural stems before conversion. Never manufacture a
+            # silent beat: production replacement must use the instrumental
+            # separated from this exact source song.
+            def _valid_stem(path: Path) -> bool:
+                try:
+                    info = sf.info(str(path))
+                    return info.frames > 0 and info.samplerate > 0 and info.duration > 0.05
+                except Exception:
+                    return False
+
+            if not _valid_stem(vocals_src) or not _valid_stem(inst_src):
+                cb("demucs produced an empty/corrupt stem", 0)
+                if not allow_fallback:
+                    raise RuntimeError("Demucs is required but produced an empty/corrupt stem")
+                return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
+
             vocals_w = work_dir / "vocals.wav"
             inst_w = work_dir / "instrumental.wav"
             shutil.copy2(vocals_src, vocals_w)
-            if inst_src.exists():
-                shutil.copy2(inst_src, inst_w)
-            else:
-                sf.write(str(inst_w), np.zeros((1,)), 44100)
+            shutil.copy2(inst_src, inst_w)
             cb("Separation done", 100)
             return str(vocals_w), str(inst_w), "demucs"
         except Exception as e:  # pragma: no cover
