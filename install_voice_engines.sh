@@ -12,7 +12,7 @@ fi
 
 echo "Installing Python 3.12-compatible voice engines into main venv..."
 "$MAIN_PY" -m pip install --upgrade pip
-"$MAIN_PY" -m pip install -r requirements_minimal.txt elevenlabs pyworld demucs
+"$MAIN_PY" -m pip install -r requirements_minimal.txt elevenlabs pyworld demucs resemblyzer
 
 if command -v sox >/dev/null 2>&1; then
   echo "SoX found: $(command -v sox)"

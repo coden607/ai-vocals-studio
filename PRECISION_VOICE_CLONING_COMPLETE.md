@@ -1,3 +1,9 @@
+# Status
+
+This file is historical. It is not the shipped contract.
+
+Near-precision is not implemented by the modules listed below. The shipped gate is `speaker_identity.py`: studio and pro fail closed on WORLD/DSP, and an acoustic fingerprint cannot pass a clone gate. A near-precision claim requires a neural engine, a neural speaker embedder, identity >= 0.82, and at least 15 seconds of clean authorized reference. `models/Pacaveli/checkpoint.json` is metadata, not a trained model.
+
 # 🎤 Precision Voice Cloning System - Implementation Complete
 
 ## 🚀 Overview
