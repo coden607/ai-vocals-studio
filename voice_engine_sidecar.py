@@ -26,11 +26,18 @@ Subcommands
 xtts  --text T --voice-name N --reference R --mood M --output O
     Zero-shot XTTS v2 synthesis inside the sidecar venv. Requires the
     ``TTS`` package in the running interpreter; XTTS v2 weights
-    (~1.8 GB) download on first use.
+    (~1.8 GB) download on first use. (Caller: clone_any_voice.py.)
 
-RVC / so-vits-svc have NO sidecar entrypoint on purpose: their only
-production callers run in-process (``rvc_engine.py``) or via the cloud
-training notebooks. This dispatcher does not invent RPCs nobody calls.
+rvc   --voice-name N --input IN.wav --output OUT.wav --models-dir DIR
+    RVC v2 audio-to-audio conversion using a trained checkpoint under
+    DIR/<name>/ (rvc_model.pth / <name>.pth / model.pth). Requires the
+    ``rvc-python`` package in the running interpreter. (Caller:
+    song_converter.convert_vocals, as the fallback when the in-process
+    RvcEngine is unavailable.)
+
+so-vits-svc has NO sidecar entrypoint: its only callers run in-process
+or via the cloud training notebooks. This dispatcher does not invent
+RPCs nobody calls.
 """
 from __future__ import annotations
 
@@ -49,6 +56,28 @@ def _emit(payload: dict) -> None:
 
 def _progress(msg: str, pct: int) -> None:
     print(f"[{pct:3d}%] {msg}", file=sys.stderr, flush=True)
+
+
+def cmd_rvc(ns: argparse.Namespace) -> dict:
+    try:
+        from rvc_engine import RvcEngine  # repo module; cwd is on sys.path
+    except Exception as exc:  # pragma: no cover - import guard
+        raise RuntimeError(f"rvc_engine module not importable: {exc}") from exc
+
+    engine = RvcEngine(ns.models_dir)
+    ok, msg = engine.convert(
+        ns.voice_name,
+        ns.input,
+        ns.output,
+        pitch_shift=0,
+        progress_cb=_progress,
+    )
+    if not ok:
+        raise RuntimeError(f"RVC conversion failed: {msg}")
+    output = Path(ns.output).expanduser().resolve()
+    if not output.exists():
+        raise RuntimeError(f"RVC conversion reported success but {output} is missing")
+    return {"engine": "rvc", "output": str(output)}
 
 
 def cmd_xtts(ns: argparse.Namespace) -> dict:
@@ -91,21 +120,25 @@ def _build_parser() -> argparse.ArgumentParser:
     px.add_argument("--voice-name", required=True, help="voice model name (dataset/<name>/ refs)")
     px.add_argument("--reference", default=None, help="explicit reference WAV (overrides mood picks)")
     px.add_argument("--mood", default=None, help="default | aggressive | storytelling | emotional")
-    px.add_argument("--output", required=True, help="destination WAV path")
+    pr = sub.add_parser("rvc", help="RVC v2 conversion (requires rvc-python + a trained .pth in this venv)")
+    pr.add_argument("--voice-name", required=True, help="voice model name (checkpoint under --models-dir)")
+    pr.add_argument("--input", required=True, help="source WAV to convert")
+    pr.add_argument("--output", required=True, help="destination WAV path")
+    pr.add_argument("--models-dir", default="models", help="models root (default: models)")
     return parser
 
 
 def main(argv: list[str]) -> int:
     ns = _build_parser().parse_args(argv)
 
-    handlers = {"xtts": cmd_xtts}
+    handlers = {"xtts": cmd_xtts, "rvc": cmd_rvc}
     handler = handlers.get(str(ns.engine))
     if handler is None:
         _emit({
             "ok": False,
             "error": (
                 f"engine '{ns.engine}' has no sidecar entrypoint. "
-                "Supported: xtts. RVC/so-vits run in-process or via cloud training."
+                "Supported: xtts, rvc. so-vits runs in-process or via cloud training."
             ),
         })
         return 2
