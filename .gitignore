@@ -92,3 +92,6 @@ vercel_frontdoor/.local_voiceover_storage/
 dataset/
 *.pth
 .venv/
+
+# Built voice profiles — contain personal reference audio + embeddings
+models/voices/
