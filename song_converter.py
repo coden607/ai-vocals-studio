@@ -465,6 +465,86 @@ def write_conversion_report(
     return str(report_path)
 
 
+def polish_converted_vocals(
+    converted_path: str | Path,
+    source_vocals_path: str | Path,
+    out_path: str | Path,
+    progress_cb: Optional[_ProgressCB] = None,
+) -> str:
+    """Match converted vocals to the source performance envelope without
+    changing timing or pitch.
+
+    The isolated source vocal is the reference for phrasing/dynamics. We apply
+    only conservative cleanup: DC removal, optional low-cut, smoothed
+    short-term RMS-envelope matching (gain clamped to +/-6 dB), and peak
+    protection. This avoids flattening breaths, consonants, vibrato, or
+    expressive dynamics while making neural VC output sit more naturally in
+    the original mix.
+    """
+    cb = progress_cb or _noop
+    cb("Polishing converted vocal dynamics...", 68)
+    converted, csr = sf.read(str(converted_path), dtype="float32", always_2d=True)
+    source, ssr = sf.read(str(source_vocals_path), dtype="float32", always_2d=True)
+    if converted.shape[0] == 0 or source.shape[0] == 0:
+        raise RuntimeError("Cannot polish an empty vocal stem")
+
+    # Use mono source envelope as the performance reference, but preserve the
+    # channel layout produced by the neural converter.
+    source_mono = source.mean(axis=1)
+    if ssr != csr:
+        if not HAS_LIBROSA:
+            raise RuntimeError("librosa is required to align vocal polish references")
+        source_mono = librosa.resample(source_mono, orig_sr=ssr, target_sr=csr).astype(np.float32)
+
+    n = converted.shape[0]
+    if source_mono.shape[0] < n:
+        source_mono = np.pad(source_mono, (0, n - source_mono.shape[0]))
+    else:
+        source_mono = source_mono[:n]
+
+    x = converted.astype(np.float32)
+    x -= np.mean(x, axis=0, keepdims=True)
+
+    # Conservative high-pass removes VC rumble/DC while leaving vocal body.
+    if HAS_SCIPY and csr >= 8000:
+        try:
+            sos = _signal.butter(2, 60.0, btype="highpass", fs=csr, output="sos")
+            x = _signal.sosfiltfilt(sos, x, axis=0).astype(np.float32)
+        except Exception:
+            pass
+
+    # Follow the source performance envelope instead of applying generic
+    # compression. 80 ms windows retain syllabic dynamics without pumping.
+    win = max(32, int(csr * 0.080))
+    kernel = np.ones(win, dtype=np.float32) / float(win)
+    src_pow = np.convolve(source_mono * source_mono, kernel, mode="same")
+    conv_mono = x.mean(axis=1)
+    conv_pow = np.convolve(conv_mono * conv_mono, kernel, mode="same")
+    eps = 1e-8
+    gain = np.sqrt((src_pow + eps) / (conv_pow + eps))
+    gain = np.clip(gain, 10 ** (-6 / 20), 10 ** (6 / 20))
+
+    # Smooth the gain curve to avoid zipper noise and preserve transients.
+    smooth = max(16, int(csr * 0.120))
+    smooth_kernel = np.ones(smooth, dtype=np.float32) / float(smooth)
+    gain = np.convolve(gain.astype(np.float32), smooth_kernel, mode="same")
+    x *= gain[:, None]
+
+    # Keep silence silent: do not boost converter noise in source-silent zones.
+    silence_floor = max(1e-6, float(np.percentile(np.sqrt(src_pow + eps), 20)) * 0.5)
+    quiet = np.sqrt(src_pow + eps) < silence_floor
+    x[quiet] *= 0.25
+
+    peak = float(np.max(np.abs(x))) if x.size else 0.0
+    if peak > 0.98:
+        x *= np.float32(0.98 / peak)
+
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(out_path), x, csr)
+    cb("Vocal polish complete", 72)
+    return str(out_path)
+
+
 # ─────────────────────────────────────────────────────────────────
 #  Step 3 — combine converted vocals + instrumental
 # ─────────────────────────────────────────────────────────────────
