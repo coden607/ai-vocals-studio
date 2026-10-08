@@ -117,3 +117,71 @@ def test_strict_demucs_rejects_empty_instrumental_stem(monkeypatch, tmp_path):
     monkeypatch.setattr(sc.subprocess, "run", fake_run)
     with pytest.raises(RuntimeError, match="empty/corrupt stem"):
         sc.separate_vocals(source, tmp_path / "work", "demucs", allow_fallback=False)
+
+
+def test_polish_converted_vocals_preserves_length_and_peak(tmp_path):
+    source = tmp_path / "source_vocals.wav"
+    converted = tmp_path / "converted.wav"
+    polished = tmp_path / "polished.wav"
+    sr = 44100
+    t = np.arange(sr, dtype=np.float32) / sr
+    # Source has a clear two-part performance envelope.
+    src = np.concatenate([
+        0.03 * np.sin(2 * np.pi * 220 * t[: sr // 2]),
+        0.12 * np.sin(2 * np.pi * 220 * t[sr // 2 :]),
+    ]).astype(np.float32)
+    conv = (0.20 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    sf.write(source, src, sr)
+    sf.write(converted, conv, sr)
+
+    sc.polish_converted_vocals(converted, source, polished)
+
+    y, out_sr = sf.read(polished, dtype="float32")
+    assert out_sr == sr
+    assert y.shape[0] == sr
+    assert np.max(np.abs(y)) <= 0.981
+    first = float(np.sqrt(np.mean(y[: sr // 2] ** 2)))
+    second = float(np.sqrt(np.mean(y[sr // 2 :] ** 2)))
+    assert second > first * 1.8
+
+
+def test_change_song_remixes_polished_vocal_not_raw_conversion(monkeypatch, tmp_path):
+    source = tmp_path / "song.wav"
+    vocals = tmp_path / "isolated_vocals.wav"
+    inst = tmp_path / "instrumental.wav"
+    _tone(source, 44100, 0.25, 220)
+    _tone(vocals, 44100, 0.25, 220)
+    _tone(inst, 44100, 0.25, 110)
+    seen = {}
+
+    monkeypatch.setattr(
+        sc, "separate_vocals",
+        lambda *args, **kwargs: (str(vocals), str(inst), "demucs"),
+    )
+
+    def fake_convert(vocals_path, profile, out_path, work_dir, progress_cb=None, require_neural=False):
+        _tone(Path(out_path), 44100, 0.25, 220)
+        return True, "Seed-VC zero-shot neural voice conversion"
+
+    def fake_combine(vocals_path, instrumental_path, out_path, vocals_gain_db=0.0, progress_cb=None):
+        seen["vocals"] = Path(vocals_path).name
+        seen["instrumental"] = Path(instrumental_path).name
+        _tone(Path(out_path), 44100, 0.25, 110)
+        return str(out_path)
+
+    monkeypatch.setattr(sc, "convert_vocals", fake_convert)
+    monkeypatch.setattr(sc, "combine_tracks", fake_combine)
+
+    out, steps = sc.change_song(
+        source,
+        {"name": "AuthorizedVoice"},
+        tmp_path / "out",
+        separation="demucs",
+        require_neural=True,
+        source_matched_export=False,
+    )
+
+    assert Path(out).exists()
+    assert seen["vocals"] == "polished_vocals.wav"
+    assert seen["instrumental"] == "instrumental.wav"
+    assert "vocal_polish" in steps
