@@ -1,4 +1,0 @@
-dataset/Pacaveli_processed/pacaveli_0000.wav|pacaveli_0000
-dataset/Pacaveli_processed/pacaveli_0001.wav|pacaveli_0001
-dataset/Pacaveli_processed/pacaveli_0002.wav|pacaveli_0002
-dataset/Pacaveli_processed/pacaveli_0003.wav|pacaveli_0003

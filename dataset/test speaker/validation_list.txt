@@ -1,2 +1,0 @@
-/home/coden809/ai-vocals-studio/dataset/test speaker/test speaker_0011.wav|test speaker_0011
-/home/coden809/ai-vocals-studio/dataset/test speaker/test speaker_0012.wav|test speaker_0012
