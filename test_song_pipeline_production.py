@@ -130,7 +130,7 @@ def test_polish_converted_vocals_preserves_length_and_peak(tmp_path):
         0.03 * np.sin(2 * np.pi * 220 * t[: sr // 2]),
         0.12 * np.sin(2 * np.pi * 220 * t[sr // 2 :]),
     ]).astype(np.float32)
-    conv = (0.20 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    conv = (0.08 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
     sf.write(source, src, sr)
     sf.write(converted, conv, sr)
 
@@ -142,7 +142,7 @@ def test_polish_converted_vocals_preserves_length_and_peak(tmp_path):
     assert np.max(np.abs(y)) <= 0.981
     first = float(np.sqrt(np.mean(y[: sr // 2] ** 2)))
     second = float(np.sqrt(np.mean(y[sr // 2 :] ** 2)))
-    assert second > first * 1.8
+    assert second > first * 2.0
 
 
 def test_change_song_remixes_polished_vocal_not_raw_conversion(monkeypatch, tmp_path):
