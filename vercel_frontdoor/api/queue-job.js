@@ -55,9 +55,12 @@ export default async function handler(req, res) {
     const qualityTarget = String(body.qualityTarget || (body.studioQuality === false ? "draft" : "pro"));
     const allowedQualityTargets = new Set(["draft", "studio", "pro"]);
     if (!allowedQualityTargets.has(qualityTarget)) return sendJson(res, 400, { ok: false, error: "Unsupported quality target." });
-    const separation = String(body.separation || "auto");
+    let separation = String(body.separation || "demucs");
     const allowedSeparation = new Set(["auto", "demucs", "center"]);
     if (!allowedSeparation.has(separation)) return sendJson(res, 400, { ok: false, error: "Unsupported separation mode." });
+    // Studio/Pro song replacement is fail-closed: the worker must separate the
+    // real vocal and instrumental stems before voice conversion/remix.
+    if (taskMode === "song_replace" && ["studio", "pro"].includes(qualityTarget)) separation = "demucs";
     if (!body.permission) return sendJson(res, 400, { ok: false, error: "Permission confirmation is required." });
     if (!files.length) return sendJson(res, 400, { ok: false, error: "Upload at least one voice sample." });
     if (taskMode === "voiceover" && !text) return sendJson(res, 400, { ok: false, error: "Voice-over text is required." });

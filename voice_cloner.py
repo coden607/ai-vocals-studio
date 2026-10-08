@@ -4,7 +4,7 @@ voice_cloner.py — Clone a voice from ANY source: a song, speech, or text.
 What this does:
   1. Accepts any audio (a full song, a speech clip, or TTS-generated speech)
      as the voice reference.
-  2. For songs, the vocals are extracted first (demucs or center-channel) so
+  2. For songs, the vocals are extracted first with neural Demucs separation so
      the clone is built from the singer's clean voice, not the music bed.
   3. Analyzes the voice into an "audio profile" (pitch, timbre envelope, RMS)
      and stores everything in models/voices/<name>/:
@@ -322,7 +322,7 @@ def extract_reference_audio(
         cb("Extracting the singer's vocals from the song...", 25)
         temp_dir = work_dir / "stems"
         vocals, _, method = separate_vocals(source_path, temp_dir,
-                                            method="auto", progress_cb=cb)
+                                            method="demucs", progress_cb=cb, allow_fallback=False)
         cb(f"Vocals extracted ({method}). Picking best vocal clip...", 60)
         if vocals:
             source = _trim_silence(_load_mono(vocals, SAMPLE_RATE),
