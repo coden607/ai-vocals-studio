@@ -131,7 +131,9 @@
           </div>
           <div class="field" id="targetField" hidden>
             <label for="targetFile">Song/audio to replace or convert</label>
-            <input id="targetFile" name="targetFile" type="file" accept="audio/*">
+            <input id="targetFile" name="targetFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif">
+            <button id="songFilePicker" type="button" class="secondary">Choose Song / Audio</button>
+            <div id="selectedSongFile" class="small">Select a song/audio file above.</div>
             <p class="small">For songs, upload audio with a vocal to replace. For beats/instrumentals with no vocal, use text voice-over and the optional browser mix bed below.</p>
           </div>
           <div class="field" id="separationField" hidden>
