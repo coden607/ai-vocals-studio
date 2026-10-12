@@ -643,11 +643,24 @@ def change_song(
                              require_neural=require_neural)
     steps["conversion"] = msg
 
+    # Source-aware polish: match the converted vocal's dynamics envelope to
+    # the isolated source performance so the replacement sits naturally in
+    # the original mix. The polished stem becomes the remix input; the raw
+    # converted stem stays on disk for inspection.
+    remix_vocals = conv_vocals
+    try:
+        polished = out_dir / "polished_vocals.wav"
+        polish_converted_vocals(conv_vocals, vocals, polished, cb)
+        remix_vocals = polished
+        steps["vocal_polish"] = str(polished)
+    except Exception as exc:
+        steps["polish_warning"] = str(exc)
+
     cb("Recombining with the instrumental...", 75)
     stem = Path(song_path).stem.replace(" ", "_")
     new_name = f"{stem}_in_{profile.get('name', 'voice')}.wav"
     out_path = out_dir / new_name
-    combine_tracks(conv_vocals, inst, out_path,
+    combine_tracks(remix_vocals, inst, out_path,
                    vocals_gain_db=vocals_gain_db, progress_cb=cb)
     steps["output"] = str(out_path)
 
