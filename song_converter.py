@@ -48,6 +48,90 @@ except ImportError:                                   # pragma: no cover
 
 _ProgressCB = Callable[[str, int], None]
 
+# Pitch search range shared by the librosa path (C2..C6) and the fallback.
+_FMIN_HZ = 65.41   # C2
+_FMAX_HZ = 1046.5  # C6
+
+
+def _resample_sinc(y: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """Windowed-sinc resampler (numpy only) for hosts without librosa/scipy.
+
+    Bandlimits with an FFT brickwall when downsampling, then interpolates
+    with a 32-tap Blackman-windowed sinc. Deterministic and dependency-free.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    if y.size == 0 or orig_sr == target_sr:
+        return y.astype(np.float32)
+    ratio = target_sr / float(orig_sr)
+    n_out = int(round(y.size * ratio))
+    if n_out <= 0:
+        return np.zeros(0, dtype=np.float32)
+
+    # Anti-alias: brickwall lowpass at the new Nyquist before decimation.
+    if target_sr < orig_sr:
+        n_fft = 1 << int(np.ceil(np.log2(y.size)))
+        spec = np.fft.rfft(y, n=n_fft)
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / orig_sr)
+        spec[freqs > target_sr / 2.0] = 0.0
+        y = np.fft.irfft(spec, n=n_fft)[: y.size]
+
+    half = 16
+    offs = np.arange(-half, half)               # int tap offsets
+    t = np.arange(n_out, dtype=np.float64) / ratio
+    i0 = np.floor(t).astype(np.int64)
+    frac = (t - i0)[:, None]                  # (n_out, 1)
+    k = i0[:, None] + offs[None, :]           # (n_out, 32) int64
+    delta = frac - offs.astype(np.float64)[None, :]  # tap distance from sample time
+    np.clip(k, 0, y.size - 1, out=k)
+    # Blackman-windowed sinc; delta == 0 contributes exactly 1.
+    win = np.blackman(2 * half)
+    sinc = np.sinc(delta) * win[None, :]
+    out = np.sum(y[k] * sinc, axis=1)
+    return out.astype(np.float32)
+
+
+def _resample(y: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """Resample to target_sr — librosa when present, sinc fallback otherwise."""
+    if orig_sr == target_sr:
+        return np.asarray(y, dtype=np.float32)
+    if HAS_LIBROSA:
+        return librosa.resample(np.asarray(y, dtype=np.float32),
+                                orig_sr=orig_sr, target_sr=target_sr)
+    return _resample_sinc(y, orig_sr, target_sr)
+
+
+def _scan_pitch_fallback(y: np.ndarray, sr: int,
+                         frame_length: int = 2048, hop_length: int = 512):
+    """Autocorrelation pitch scan (numpy only). Returns (f0, rms) per frame."""
+    n = y.size
+    if n < frame_length:
+        frame_length = max(64, 1 << int(np.floor(np.log2(n))))
+    n_frames = 1 + max(0, (n - frame_length) // hop_length)
+    f0 = np.zeros(n_frames, dtype=np.float64)
+    rms = np.zeros(n_frames, dtype=np.float64)
+    win = np.hanning(frame_length)
+    lo = max(2, int(sr / _FMAX_HZ))
+    hi = min(frame_length - 2, int(sr / _FMIN_HZ))
+    for i in range(n_frames):
+        frame = y[i * hop_length: i * hop_length + frame_length] * win
+        frame = frame - frame.mean()
+        rms[i] = float(np.sqrt(np.mean(frame ** 2)))
+        if rms[i] < 1e-5 or hi <= lo:
+            continue
+        acf = np.correlate(frame, frame, mode="full")[frame_length - 1:]
+        if acf[0] <= 0:
+            continue
+        seg = acf[lo: hi + 1]
+        pk = lo + int(np.argmax(seg))
+        if acf[pk] / acf[0] < 0.3:   # low periodicity → unvoiced/noise
+            continue
+        # Parabolic refinement of the ACF peak lag
+        denom = acf[pk - 1] - 2.0 * acf[pk] + acf[pk + 1]
+        lag = float(pk) if abs(denom) < 1e-12 else pk + 0.5 * (acf[pk - 1] - acf[pk + 1]) / denom
+        if lag > 0:
+            f0[i] = sr / lag
+    return f0, rms
+
 
 def _noop(msg: str, pct: int) -> None:
     pass
@@ -197,10 +281,10 @@ def _load_mono(path: str | Path, sr: int = 22050) -> np.ndarray:
     """Load any audio file as mono float32 at `sr`."""
     if HAS_LIBROSA:
         return librosa.load(str(path), sr=sr, mono=True)[0].astype(np.float32)
-    y, _ = sf.read(str(path), dtype="float32", always_2d=False)
+    y, orig_sr = sf.read(str(path), dtype="float32", always_2d=False)
     if y.ndim > 1:
         y = y.mean(axis=1)
-    return y
+    return _resample(y, orig_sr, sr)
 
 
 def _to_stereo(mono: np.ndarray) -> np.ndarray:
@@ -211,10 +295,20 @@ def _to_stereo(mono: np.ndarray) -> np.ndarray:
 def estimate_pitch(y: np.ndarray, sr: int = 22050) -> tuple[float, float]:
     """
     Estimate median fundamental frequency (Hz) and std over voiced frames.
-    Uses librosa.yin (fast, robust). Returns (median_f0, std_f0) or (0, 0).
+    Uses librosa.yin when available, else an autocorrelation scan.
+    Returns (median_f0, std_f0) or (0, 0).
     """
-    if not HAS_LIBROSA:
+    if y.size == 0:
         return 0.0, 0.0
+    if not HAS_LIBROSA:
+        f0, rms = _scan_pitch_fallback(y, sr)
+        if rms.size == 0:
+            return 0.0, 0.0
+        threshold = max(1e-4, float(np.percentile(rms, 65)) * 0.25)
+        voiced = f0[(f0 > 0) & (rms > threshold)]
+        if voiced.size == 0:
+            return 0.0, 0.0
+        return float(np.median(voiced)), float(np.std(voiced))
     try:
         f0 = librosa.yin(y, fmin=librosa.note_to_hz("C2"),
                          fmax=librosa.note_to_hz("C6"), sr=sr)
@@ -227,11 +321,21 @@ def estimate_pitch(y: np.ndarray, sr: int = 22050) -> tuple[float, float]:
 
 
 def voiced_fraction(y: np.ndarray, sr: int = 22050) -> float:
-    """Return the fraction of frames with detectable voice-like pitch."""
-    if not HAS_LIBROSA or y.size == 0:
+    """Return the fraction of frames with detectable voice-like pitch.
+
+    Falls back to an autocorrelation scan when librosa is unavailable, so
+    the clip gate still works on constrained hosts (never silently 0)."""
+    if y.size == 0:
         return 0.0
     if float(np.sqrt(np.mean(y ** 2))) < 1e-4:
         return 0.0
+    if not HAS_LIBROSA:
+        f0, rms = _scan_pitch_fallback(y, sr)
+        if rms.size == 0:
+            return 0.0
+        threshold = max(1e-4, float(np.percentile(rms, 65)) * 0.25)
+        voiced = (f0 > 0) & (rms > threshold)
+        return float(np.mean(voiced))
     try:
         f0 = librosa.yin(y, fmin=librosa.note_to_hz("C2"),
                          fmax=librosa.note_to_hz("C6"), sr=sr)
@@ -251,9 +355,26 @@ def voiced_fraction(y: np.ndarray, sr: int = 22050) -> float:
 
 def band_energy_profile(y: np.ndarray, sr: int = 22050,
                         n_bands: int = 16) -> list[float]:
-    """Long-term average per-band RMS dB profile of `y` (log-mel-like)."""
-    if not HAS_LIBROSA:
+    """Long-term average per-band RMS dB profile of `y` (log-mel-like).
+
+    Without librosa: rFFT into log-spaced bands (same output contract)."""
+    if y.size == 0:
         return [0.0] * n_bands
+    if not HAS_LIBROSA:
+        win = np.hanning(y.size)
+        spec = np.abs(np.fft.rfft(y * win))
+        power = spec ** 2
+        freqs = np.fft.rfftfreq(y.size, d=1.0 / sr)
+        edges = np.geomspace(max(20.0, freqs[1] if freqs.size > 1 else 20.0),
+                             sr / 2.0, n_bands + 1)
+        bands = np.zeros(n_bands)
+        for b in range(n_bands):
+            mask = (freqs >= edges[b]) & (freqs < edges[b + 1])
+            bands[b] = float(np.sum(power[mask])) if np.any(mask) else 0.0
+        with np.errstate(divide="ignore"):
+            db = 10.0 * np.log10(bands + 1e-12)
+        db = db - float(np.max(db))
+        return [float(v) for v in db]
     mels = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_bands,
                                           fmax=sr / 2)
     band_db = librosa.power_to_db(mels, ref=np.max)
@@ -568,10 +689,8 @@ def combine_tracks(
     # The instrumental is the timing/master clock. Resample converted vocals
     # to it, then pad/trim without changing playback speed.
     if vsr != isr:
-        if not HAS_LIBROSA:
-            raise RuntimeError("librosa is required to resample mismatched tracks")
         v = np.stack([
-            librosa.resample(v[:, ch], orig_sr=vsr, target_sr=isr)
+            _resample(v[:, ch], vsr, isr)
             for ch in range(v.shape[1])
         ], axis=-1).astype(np.float32)
         vsr = isr
