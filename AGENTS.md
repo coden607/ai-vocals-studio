@@ -90,3 +90,18 @@ A feature is done only when the implementation, tests, documentation, runtime co
 Before substantive work, consult the shared skill catalog at https://github.com/coden607/skills and apply every relevant skill automatically. Treat that repository as the canonical cross-agent skill source; do not require the user to ask for a skill by name. Preserve this repository's own project rules and use them when they are more specific.
 
 Compatibility: Codex/OpenAI-compatible agents use AGENTS.md directly. Claude, Gemini, Copilot, Kimi, Grok, and other coding agents should treat this section and coden607/skills as shared guidance whenever their environment can read repository instructions or GitHub. Never claim a skill, MCP, hook, CLI, or external tool is available unless it is actually installed/accessible in the current runtime.
+
+## Vendored skills
+Skills are copied from https://github.com/coden607/skills (there is no `coden697/skills`) into `.agents/skills/<name>/SKILL.md`. Read that file before the matching job. Do not invent a slash command.
+
+Core skills to apply on this repo:
+- `route-interrupts`: a new request mid-task is steering, a side question, or a queue item. Stop only on an explicit halt.
+- `isolate-agent-runs`: do not train, delete datasets, or push model binaries from an unattended run. No celebrity acapellas.
+- `enforce-with-hooks`: studio/pro must fail closed in code, not only in a prompt. The gate is `speaker_identity.py`.
+- `maintain-second-brain`: project facts that can go stale live in memory as state; merge SHAs and test results are events.
+- `route-with-jev` and `jev-gate`: use them to pick retry, stop, or ask. Do not use them to draft a clone claim.
+- `run-software-factory` and `build-dark-factory`: a song or clone change still needs the focused test before a PR.
+- `compress-token-spend`: read the file you will edit, not the whole tree.
+- `legal-war-room`: use only for a real filing or consent question. It does not authorize a voice.
+
+Song render uses `song_pipeline_cli.py render`. That command is local until GitHub auth can push `song-verse-render`.

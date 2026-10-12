@@ -6,6 +6,7 @@ DSP fallbacks are never studio or near-precision.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -174,7 +175,14 @@ def cosine_similarity(a: Iterable[float], b: Iterable[float]) -> float:
 
 def _engine_family(engine: str | None) -> str:
     text = str(engine or "")
-    if "RVC" in text:
+    # Negative signals FIRST. Conversion paths advertise their upgrades in
+    # human messages like "DSP timbre mapping (RVC optional - train a model
+    # to upgrade)" — a DSP result that *mentions* RVC is still DSP. Checking
+    # RVC before DSP here let WORLD/DSP output claim a neural family and
+    # breach the fail-closed contract.
+    if "DSP" in text or "WORLD" in text or "gTTS" in text:
+        return "WORLD/DSP"
+    if re.search(r"\bRVC\b", text):
         return "RVC"
     if "ElevenLabs" in text:
         return "ElevenLabs"
@@ -182,8 +190,6 @@ def _engine_family(engine: str | None) -> str:
         return "Qwen3-TTS"
     if "XTTS" in text:
         return "XTTS v2"
-    if "DSP" in text or "WORLD" in text or "gTTS" in text:
-        return "WORLD/DSP"
     return text or "unknown"
 
 
@@ -192,6 +198,10 @@ def is_neural_engine(engine: str | None) -> bool:
     if family in NEURAL_ENGINES:
         return True
     text = str(engine or "")
+    # Same guard as _engine_family: explicit DSP/WORLD/gTTS in the label is
+    # a negative no matter which upgrade paths the message also mentions.
+    if "DSP" in text or "WORLD" in text or "gTTS" in text:
+        return False
     return any(name in text for name in ("RVC", "ElevenLabs", "Qwen3-TTS", "XTTS"))
 
 

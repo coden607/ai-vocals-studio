@@ -2,7 +2,7 @@
 # Kept separate from XTTS because rvc-python pins numpy<=1.23.5.
 
 rvc-python>=0.1.5
-setuptools<81
+setuptools<85
 faiss-cpu
 ffmpeg-python
 torch

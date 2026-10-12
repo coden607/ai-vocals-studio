@@ -1,2 +1,0 @@
-/home/coden809/ai-vocals-studio/dataset/w2re/w2re_0011.wav|w2re_0011
-/home/coden809/ai-vocals-studio/dataset/w2re/w2re_0012.wav|w2re_0012

@@ -42,10 +42,12 @@
       textarea { min-height: 140px; resize: vertical; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
       .field { margin-bottom: 16px; }
+      .check label { display: block; margin: 0; color: inherit; font-size: inherit; font-weight: inherit; letter-spacing: normal; text-transform: none; cursor: pointer; }
       .check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; color: var(--muted); line-height: 1.45; }
       .check input { width: auto; margin-top: 3px; }
       button { width: 100%; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #07100b; cursor: pointer; font: inherit; font-weight: 900; padding: 15px 18px; }
       button:disabled { cursor: not-allowed; filter: grayscale(1); opacity: 0.55; }
+      button.secondary { margin-top: 10px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
       .status { margin-top: 14px; color: var(--muted); min-height: 24px; white-space: pre-wrap; }
       .status.error { color: var(--danger); }
       .result audio { width: 100%; margin-top: 14px; }
@@ -117,7 +119,9 @@
           </div>
           <div class="field">
             <label for="voiceFiles">Voice samples</label>
-            <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*" multiple required>
+            <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif" multiple required>
+            <button id="voiceFilePicker" type="button" class="secondary">Choose Voice Audio</button>
+            <div id="selectedVoiceFiles" class="small">No voice samples selected.</div>
             <p class="small">Use clean single-speaker WAV/FLAC. Studio-match mode requires at least 20 seconds; 60+ seconds is better.</p>
             <div id="readiness" class="readiness small">Upload samples to check clone readiness.</div>
           </div>
@@ -127,7 +131,9 @@
           </div>
           <div class="field" id="targetField" hidden>
             <label for="targetFile">Song/audio to replace or convert</label>
-            <input id="targetFile" name="targetFile" type="file" accept="audio/*">
+            <input id="targetFile" name="targetFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif">
+            <button id="songFilePicker" type="button" class="secondary">Choose Song / Audio</button>
+            <div id="selectedSongFile" class="small">Select a song/audio file above.</div>
             <p class="small">For songs, upload audio with a vocal to replace. For beats/instrumentals with no vocal, use text voice-over and the optional browser mix bed below.</p>
           </div>
           <div class="field" id="separationField" hidden>
@@ -174,15 +180,15 @@
           </div>
           <div class="field check">
             <input id="studioQuality" name="studioQuality" type="checkbox" checked>
-            <span>Block low-quality samples instead of generating a weak clone.</span>
+            <label for="studioQuality">Block low-quality samples instead of generating a weak clone.</label>
           </div>
           <div class="field check">
             <input id="permission" name="permission" type="checkbox" required>
-            <span>I own this voice or have explicit written permission/license to clone and synthesize it.</span>
+            <label for="permission">I own this voice or have explicit written permission/license to clone and synthesize it.</label>
           </div>
           <div class="field check">
             <input id="deleteVoice" name="deleteVoice" type="checkbox" checked>
-            <span>Delete the temporary cloud voice after generation.</span>
+            <label for="deleteVoice">Delete the temporary cloud voice after generation.</label>
           </div>
           <button id="generateBtn" type="submit">Clone Voice + Generate Voice-Over</button>
           <div id="status" class="status"></div>
@@ -505,7 +511,15 @@
           button.disabled = false;
         }
       });
+      document.getElementById("songFilePicker").addEventListener("click", () => document.getElementById("targetFile").click());
+      document.getElementById("targetFile").addEventListener("change", (event) => {
+        const file = event.target.files && event.target.files[0];
+        document.getElementById("selectedSongFile").textContent = file ? `Selected song: ${file.name}` : "No song selected.";
+      });
+      document.getElementById("voiceFilePicker").addEventListener("click", () => document.getElementById("voiceFiles").click());
       document.getElementById("voiceFiles").addEventListener("change", async (event) => {
+        const selected = document.getElementById("selectedVoiceFiles");
+        selected.textContent = event.target.files.length ? `${event.target.files.length} file(s): ${[...event.target.files].map((file) => file.name).join(", ")}` : "No voice samples selected.";
         const files = [...event.target.files];
         if (!files.length) return renderReadiness(null);
         try {

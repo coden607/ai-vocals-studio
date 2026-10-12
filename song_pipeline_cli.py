@@ -6,7 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from song_converter import change_song, separate_vocals
+from song_converter import change_song, combine_tracks, convert_vocals, separate_vocals
+from verse_voices import distinguish_verse_voices
 
 
 def _progress(message: str, percent: int) -> None:
@@ -37,6 +38,14 @@ def main() -> int:
     rep.add_argument("--i-have-permission", action="store_true", required=True,
                      help="confirm permission to use the target voice")
 
+    render = sub.add_parser("render", help="Separate, label verse voices, clone the vocal, write alone and over-beat")
+    render.add_argument("song")
+    render.add_argument("--profile", required=True)
+    render.add_argument("--output-dir", default="output/rendered")
+    render.add_argument("--separation", choices=["auto", "demucs", "center"], default="auto")
+    render.add_argument("--vocals-gain-db", type=float, default=0.0)
+    render.add_argument("--i-have-permission", action="store_true", required=True)
+
     args = parser.parse_args()
 
     if args.command == "separate":
@@ -53,10 +62,34 @@ def main() -> int:
         }, indent=2))
         return 0
 
-    profile_path = Path(args.profile)
-    profile = json.loads(profile_path.read_text(encoding="utf-8"))
     if not args.i_have_permission:
         raise SystemExit("permission confirmation is required")
+    profile = json.loads(Path(args.profile).read_text(encoding="utf-8"))
+
+    if args.command == "render":
+        out = Path(args.output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        vocals, instrumental, method = separate_vocals(args.song, out, args.separation, _progress)
+        if not vocals or not instrumental:
+            raise SystemExit("separation failed")
+        verses = distinguish_verse_voices(vocals, out)
+        cloned = out / "cloned_vocal_alone.wav"
+        ok, msg = convert_vocals(vocals, profile, cloned, out, _progress)
+        if not ok:
+            raise SystemExit(msg)
+        over = out / "cloned_vocal_over_beat.wav"
+        combine_tracks(cloned, instrumental, over, vocals_gain_db=args.vocals_gain_db, progress_cb=_progress)
+        print(json.dumps({
+            "separation": method,
+            "acapella": vocals,
+            "beat": instrumental,
+            "verse_voices": verses["voices"],
+            "turns": verses["turns"],
+            "cloned_vocal_alone": str(cloned),
+            "cloned_vocal_over_beat": str(over),
+            "conversion": msg,
+        }, indent=2))
+        return 0
 
     output, steps = change_song(
         args.song,
