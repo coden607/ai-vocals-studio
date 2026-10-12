@@ -511,6 +511,11 @@
           button.disabled = false;
         }
       });
+      document.getElementById("songFilePicker").addEventListener("click", () => document.getElementById("targetFile").click());
+      document.getElementById("targetFile").addEventListener("change", (event) => {
+        const file = event.target.files && event.target.files[0];
+        document.getElementById("selectedSongFile").textContent = file ? `Selected song: ${file.name}` : "No song selected.";
+      });
       document.getElementById("voiceFilePicker").addEventListener("click", () => document.getElementById("voiceFiles").click());
       document.getElementById("voiceFiles").addEventListener("change", async (event) => {
         const selected = document.getElementById("selectedVoiceFiles");
