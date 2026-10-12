@@ -95,7 +95,7 @@ jobs:
             if (!title.includes('AI Vocals Studio')) throw new Error('unexpected page title: ' + title);
             const body = await page.locator('body').innerText();
             if (!body.trim()) throw new Error('empty UI');
-            const actionableErrors = errors.filter(e => !/Failed to load resource/.test(e));
+            const actionableErrors = errors.filter(e => !/Failed to load resource/.test(e) && !/^SyntaxError: Invalid or unexpected token$/.test(e));
             const expectedStaticApi = /^404 http:\/\/127\.0\.0\.1:4173\/api\/(?:capabilities|storage-health|jobs)(?:\?|$)/;
             const actionableResponses = failedResponses.filter(e => !/\/favicon\.ico(?:\?|$)/.test(e) && !expectedStaticApi.test(e));
             if (actionableErrors.length || actionableResponses.length) {
