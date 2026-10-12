@@ -46,7 +46,7 @@
       .check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; color: var(--muted); line-height: 1.45; }
       .check input { width: auto; margin-top: 3px; }
       button { width: 100%; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #07100b; cursor: pointer; font: inherit; font-weight: 900; padding: 15px 18px; }
-      button:disabled { cursor: not-allowed; filter: grayscale(1); opacity: 0.55; }
+      button:disabled { cursor: not-allowed; filter: grayscale(1); opacity: 0.55; }\n      button.secondary { margin-top: 10px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
       .status { margin-top: 14px; color: var(--muted); min-height: 24px; white-space: pre-wrap; }
       .status.error { color: var(--danger); }
       .result audio { width: 100%; margin-top: 14px; }
@@ -118,7 +118,7 @@
           </div>
           <div class="field">
             <label for="voiceFiles">Voice samples</label>
-            <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*" multiple required>
+            <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif" multiple required>\n            <button id="voiceFilePicker" type="button" class="secondary">Choose Voice Audio</button>\n            <div id="selectedVoiceFiles" class="small">No voice samples selected.</div>
             <p class="small">Use clean single-speaker WAV/FLAC. Studio-match mode requires at least 20 seconds; 60+ seconds is better.</p>
             <div id="readiness" class="readiness small">Upload samples to check clone readiness.</div>
           </div>
@@ -506,7 +506,7 @@
           button.disabled = false;
         }
       });
-      document.getElementById("voiceFiles").addEventListener("change", async (event) => {
+      document.getElementById("voiceFilePicker").addEventListener("click", () => document.getElementById("voiceFiles").click());\n      document.getElementById("voiceFiles").addEventListener("change", async (event) => {\n        const selected = document.getElementById("selectedVoiceFiles");\n        selected.textContent = event.target.files.length ? `${event.target.files.length} file(s): ${[...event.target.files].map((file) => file.name).join(", ")}` : "No voice samples selected.";
         const files = [...event.target.files];
         if (!files.length) return renderReadiness(null);
         try {
