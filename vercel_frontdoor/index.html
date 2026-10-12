@@ -42,6 +42,7 @@
       textarea { min-height: 140px; resize: vertical; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
       .field { margin-bottom: 16px; }
+      .check label { display: block; margin: 0; color: inherit; font-size: inherit; font-weight: inherit; letter-spacing: normal; text-transform: none; cursor: pointer; }
       .check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; color: var(--muted); line-height: 1.45; }
       .check input { width: auto; margin-top: 3px; }
       button { width: 100%; border: 0; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #07100b; cursor: pointer; font: inherit; font-weight: 900; padding: 15px 18px; }
@@ -174,15 +175,15 @@
           </div>
           <div class="field check">
             <input id="studioQuality" name="studioQuality" type="checkbox" checked>
-            <span>Block low-quality samples instead of generating a weak clone.</span>
+            <label for="studioQuality">Block low-quality samples instead of generating a weak clone.</label>
           </div>
           <div class="field check">
             <input id="permission" name="permission" type="checkbox" required>
-            <span>I own this voice or have explicit written permission/license to clone and synthesize it.</span>
+            <label for="permission">I own this voice or have explicit written permission/license to clone and synthesize it.</label>
           </div>
           <div class="field check">
             <input id="deleteVoice" name="deleteVoice" type="checkbox" checked>
-            <span>Delete the temporary cloud voice after generation.</span>
+            <label for="deleteVoice">Delete the temporary cloud voice after generation.</label>
           </div>
           <button id="generateBtn" type="submit">Clone Voice + Generate Voice-Over</button>
           <div id="status" class="status"></div>
