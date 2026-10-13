@@ -1,3 +1,30 @@
+<!-- BEGIN coden607-skills (managed block; safe to re-run installer) -->
+# 🧠 Continuity OS Universal Directives (Always-On)
+
+Continuity OS (core: `/root/Projects/continuity-os`, local daemon: `http://localhost:3030`) is the canonical operating system for all AI assistants and coding agents on this machine. ALL work, routing, memory, and safety invariants MUST flow through it.
+
+## Always in effect (default behavior across EVERY session):
+- **compress-token-spend**: pick the cheapest model tier that fits, search before dumping files into context, keep replies as short as correctness allows, structure prompts for cache hits.
+- **route-interrupts**: if a message arrives mid-task and is not a stop order, classify it (steering addition / side question / new task / urgent redirect). Fold in, answer tersely then resume, queue behind current work, or halt safely at the next checkpoint. Never silently drop the active task. Stop/abort messages execute immediately.
+- **isolate-agent-runs**: before any destructive or irreversible action (rm -rf, force-push, DB writes, touching keys/secrets, production-shaped resources), gate it. In autonomous/yolo runs, sandbox and protect secrets. Watch for the "dumb zone" in long sessions and checkpoint or restart instead of pushing on.
+- **maintain-second-brain**: when a new durable fact arrives, classify it as STATE (overwrite stale value in MEMORY.md) or EVENT (append with timestamp in daily/YYYY-MM-DD.md) and file it in the right tier in `/root/Projects/continuity-os/second-brain/`. Flag contradictions between memory and other sources.
+- **always-format-clickable-links**: ALL web URLs, files, and demo links MUST ALWAYS be formatted as tap-to-open clickable Markdown hyperlinks (e.g. `[Open Live Demo](https://...)` or `[file.ts](file:///path)`). Never leave raw unclickable URLs.
+- **anticipate**: predict and surface the highest-value likely next action while preserving user control. Advance the active task with minimal interaction: Do Now (already authorized, reversible, advancing), Suggest (user choice), or Ask First (destructive, irreversible, monetary, external comms). Output discipline: Result -> Blocker -> Next Action.
+
+## Apply when the situation fits:
+- **enforce-with-hooks**: when a rule must fire every time, or the agent keeps ignoring an instruction, implement it as a hook (PreToolUse / PostToolUse / Stop / SessionStart) instead of a prompt reminder.
+- **route-with-jev**: for classification, routing, and guardrail decisions, use the Jev decision endpoint (`cos jev` or `POST http://localhost:3030/api/jev`) instead of a full LLM call. Otherwise fall back to a regex or the cheapest tier.
+- **run-software-factory**: for repos that ship their own code, follow its autonomy levels and PRD to PR pipeline. Never raise autonomy level without the user saying so.
+
+<!-- END coden607-skills -->
+
+<!-- CODEN607 SKILLS GLOBAL RULES -->
+Canonical skills: /root/.coden607/skills
+Continuity OS Core: /root/Projects/continuity-os
+Universal Daemon: http://localhost:3030
+Before substantial work, read /root/.coden607/skills/bundle.md and load only the smallest matching SKILL.md set.
+<!-- END CODEN607 SKILLS GLOBAL RULES -->
+
 # AGENTS.md — AI Vocals Studio
 
 ## Mission
