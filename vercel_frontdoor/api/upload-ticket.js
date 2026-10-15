@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { storageConfig, supabaseConfig, supabaseRequest } from "./_supabase.js";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createJob, getJob, storageConfig, supabaseConfig, supabaseRequest, updateJob } from "./_supabase.js";
 
 export const config = {
   api: { bodyParser: { sizeLimit: "128kb" } },
@@ -8,7 +8,9 @@ export const config = {
 
 const ALLOWED_TASKS = new Set(["voiceover", "song_replace", "clip_convert", "rvc_train"]);
 const AUDIO_EXTENSION = /\.(wav|mp3|m4a|aac|flac|ogg|aiff|aif)$/i;
-const DEFAULT_MAX_DIRECT_UPLOAD_BYTES = 1024 * 1024 * 1024;
+const DEFAULT_MAX_DIRECT_UPLOAD_BYTES = 512 * 1024 * 1024;
+const DEFAULT_MAX_DIRECT_BATCH_BYTES = 1024 * 1024 * 1024;
+const MAX_FILES_PER_BATCH = 7;
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
@@ -43,6 +45,43 @@ function directStorageEndpoint(supabaseUrl) {
   return `${supabaseUrl.replace(/\/+$/, "")}/storage/v1/upload/resumable`;
 }
 
+function configuredUploadSecret() {
+  return String(process.env.UPLOAD_ACCESS_TOKEN || process.env.ELEVENLABS_API_KEY || "");
+}
+
+function bearerToken(req) {
+  const header = String(req.headers?.authorization || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function authenticate(req) {
+  const expected = configuredUploadSecret();
+  const provided = bearerToken(req);
+  if (!expected || !provided) return null;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return createHash("sha256").update(provided).digest("hex").slice(0, 24);
+}
+
+function boundedLimit(value, fallback) {
+  const parsed = Number(value || fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function jobType(taskMode) {
+  return taskMode === "voiceover"
+    ? "local_worker_voiceover"
+    : taskMode === "rvc_train"
+      ? "local_worker_rvc_train"
+      : "local_worker_audio_replace";
+}
+
+function workerMode(taskMode) {
+  return taskMode === "song_replace" ? "song" : taskMode === "clip_convert" ? "clip" : "bed";
+}
+
 async function createSignedUploadToken(objectPath) {
   const cfg = supabaseConfig();
   const response = await supabaseRequest(
@@ -73,7 +112,15 @@ export default async function handler(req, res) {
     if (storage.provider !== "supabase") {
       return sendJson(res, 409, {
         ok: false,
-        error: "Direct resumable uploads require Supabase Storage. Local storage mode uses the legacy server upload path.",
+        error: "Direct resumable uploads require Supabase Storage. Local storage mode uses the compatibility server upload path.",
+      });
+    }
+
+    const principal = authenticate(req);
+    if (!principal) {
+      return sendJson(res, 401, {
+        ok: false,
+        error: "Direct uploads require an authorized access key. Enter the configured upload/ElevenLabs key and retry.",
       });
     }
 
@@ -86,70 +133,112 @@ export default async function handler(req, res) {
       return sendJson(res, 400, { ok: false, error: "Permission confirmation is required before uploading voice material." });
     }
 
-    const requested = Array.isArray(body.files) ? body.files : [];
-    if (!requested.length || requested.length > 7) {
-      return sendJson(res, 400, { ok: false, error: "Upload between 1 and 7 audio files per job." });
-    }
-
-    const configuredLimit = Number(process.env.MAX_DIRECT_UPLOAD_BYTES || DEFAULT_MAX_DIRECT_UPLOAD_BYTES);
-    const maxBytes = Number.isFinite(configuredLimit) && configuredLimit > 0
-      ? configuredLimit
-      : DEFAULT_MAX_DIRECT_UPLOAD_BYTES;
-
-    const normalized = requested.map((item, index) => {
-      const role = item?.role === "target" ? "target" : "voice";
-      const clientId = String(item?.clientId || `${role}:${index}`).slice(0, 80);
-      const name = cleanName(item?.name);
-      const size = Number(item?.size || 0);
-      const type = String(item?.type || "application/octet-stream").slice(0, 120);
-      if (!AUDIO_EXTENSION.test(name)) throw new Error(`Unsupported audio file: ${name}`);
-      if (!Number.isFinite(size) || size <= 0) throw new Error(`Invalid audio size for ${name}`);
-      if (size > maxBytes) {
-        throw new Error(`${name} exceeds the configured direct-upload ceiling of ${Math.round(maxBytes / (1024 * 1024))} MB.`);
-      }
-      return { role, clientId, name, size, type };
-    });
-
-    const voiceFiles = normalized.filter((item) => item.role === "voice");
-    const targetFiles = normalized.filter((item) => item.role === "target");
-    if (!voiceFiles.length || voiceFiles.length > 6) {
-      return sendJson(res, 400, { ok: false, error: "Upload 1 to 6 voice reference files." });
-    }
-    const requiresTarget = taskMode === "song_replace" || taskMode === "clip_convert";
-    if (requiresTarget && targetFiles.length !== 1) {
-      return sendJson(res, 400, { ok: false, error: "Exactly one target song/audio file is required." });
-    }
-    if (!requiresTarget && targetFiles.length) {
+    const item = body.file || {};
+    const role = item?.role === "target" ? "target" : "voice";
+    const clientId = String(item?.clientId || `${role}:0`).slice(0, 80);
+    const name = cleanName(item?.name);
+    const size = Number(item?.size || 0);
+    const type = String(item?.type || "application/octet-stream").slice(0, 120);
+    if (!AUDIO_EXTENSION.test(name)) return sendJson(res, 400, { ok: false, error: `Unsupported audio file: ${name}` });
+    if (!Number.isFinite(size) || size <= 0) return sendJson(res, 400, { ok: false, error: `Invalid audio size for ${name}` });
+    if (role === "target" && !["song_replace", "clip_convert"].includes(taskMode)) {
       return sendJson(res, 400, { ok: false, error: "This task does not accept a target song/audio file." });
     }
 
-    const batchId = randomUUID();
-    const cfg = supabaseConfig();
-    const tickets = [];
-    for (const item of normalized) {
-      const folder = item.role === "target" ? "target" : "voices";
-      const safeName = item.name.replace(/\s+/g, "_");
-      const objectPath = `queued/${batchId}/${folder}/${randomUUID()}-${safeName}`;
-      const token = await createSignedUploadToken(objectPath);
-      tickets.push({
-        clientId: item.clientId,
-        role: item.role,
-        name: item.name,
-        type: item.type,
-        size: item.size,
-        path: objectPath,
-        token,
+    const maxObjectBytes = boundedLimit(process.env.MAX_DIRECT_UPLOAD_BYTES, DEFAULT_MAX_DIRECT_UPLOAD_BYTES);
+    const maxBatchBytes = boundedLimit(process.env.MAX_DIRECT_UPLOAD_BATCH_BYTES, DEFAULT_MAX_DIRECT_BATCH_BYTES);
+    if (size > maxObjectBytes) {
+      return sendJson(res, 413, {
+        ok: false,
+        error: `${name} exceeds the direct-upload object ceiling of ${Math.round(maxObjectBytes / (1024 * 1024))} MB.`,
       });
     }
 
+    let uploadJob = null;
+    const uploadSessionId = String(body.uploadSessionId || "");
+    if (uploadSessionId) {
+      uploadJob = await getJob(uploadSessionId);
+      if (!uploadJob || uploadJob.status !== "uploading") {
+        return sendJson(res, 409, { ok: false, error: "Upload session is missing, expired, or already finalized." });
+      }
+      const report = uploadJob.report || {};
+      if (report.uploadPrincipal !== principal || report.taskMode !== taskMode) {
+        return sendJson(res, 403, { ok: false, error: "Upload session authorization mismatch." });
+      }
+    } else {
+      uploadJob = await createJob({
+        status: "uploading",
+        job_type: jobType(taskMode),
+        voice_name: cleanName(body.voiceName || "Authorized Voice"),
+        engine: "awaiting upload",
+        permission_confirmed: true,
+        input_files: [],
+        text: String(body.text || "").trim(),
+        mode: workerMode(taskMode),
+        settings: {
+          taskMode,
+          qualityTarget: String(body.qualityTarget || "draft"),
+        },
+        report: {
+          queuedBy: "vercel",
+          storageProvider: "supabase",
+          uploadMode: "direct_resumable",
+          uploadPrincipal: principal,
+          taskMode,
+          stagedBytes: 0,
+          stagedFiles: 0,
+          expectedUploads: [],
+        },
+      });
+    }
+
+    const report = uploadJob.report || {};
+    const expectedUploads = Array.isArray(report.expectedUploads) ? [...report.expectedUploads] : [];
+    let ticketMeta = expectedUploads.find((entry) => entry.clientId === clientId);
+    if (ticketMeta) {
+      if (ticketMeta.role !== role || ticketMeta.name !== name || Number(ticketMeta.size) !== size) {
+        return sendJson(res, 409, { ok: false, error: "This upload slot was already reserved for a different file." });
+      }
+    } else {
+      const stagedFiles = Number(report.stagedFiles || 0);
+      const stagedBytes = Number(report.stagedBytes || 0);
+      if (stagedFiles >= MAX_FILES_PER_BATCH) {
+        return sendJson(res, 429, { ok: false, error: `Upload session is limited to ${MAX_FILES_PER_BATCH} files.` });
+      }
+      if (stagedBytes + size > maxBatchBytes) {
+        return sendJson(res, 413, {
+          ok: false,
+          error: `Upload session exceeds the ${Math.round(maxBatchBytes / (1024 * 1024))} MB batch quota.`,
+        });
+      }
+
+      const folder = role === "target" ? "target" : "voices";
+      const safeName = name.replace(/\s+/g, "_");
+      const objectPath = `queued/${uploadJob.id}/${folder}/${randomUUID()}-${safeName}`;
+      ticketMeta = { clientId, role, name, type, size, path: objectPath };
+      expectedUploads.push(ticketMeta);
+      uploadJob = await updateJob(uploadJob.id, {
+        report: {
+          ...report,
+          stagedFiles: stagedFiles + 1,
+          stagedBytes: stagedBytes + size,
+          expectedUploads,
+        },
+      }) || uploadJob;
+    }
+
+    // Mint the signed capability only when this specific file is about to start.
+    // Repeated calls for the same clientId refresh the token for the same path.
+    const token = await createSignedUploadToken(ticketMeta.path);
+    const cfg = supabaseConfig();
     return sendJson(res, 200, {
       ok: true,
       provider: "supabase",
       bucket: cfg.bucket,
       endpoint: directStorageEndpoint(cfg.url),
       chunkSize: 6 * 1024 * 1024,
-      batchId,
-      tickets,
+      uploadSessionId: uploadJob.id,
+      ticket: { ...ticketMeta, token },
     });
   } catch (error) {
     return sendJson(res, 500, { ok: false, error: error.message || String(error) });
