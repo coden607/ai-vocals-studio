@@ -755,8 +755,9 @@
           }
           setStatus(isTraining ? "Queueing RVC training job for the local worker..." : processingMode === "worker" ? "Queueing full local worker job in Supabase..." : "Cloning voice and generating voice-over on Vercel...");
           const requestHeaders = { "Content-Type": "application/json" };
-          if (processingMode === "worker" && workerUploads?.uploadSessionId) {
-            requestHeaders.Authorization = `Bearer ${workerUploads.accessKey}`;
+          if (processingMode === "worker") {
+            const accessKey = document.getElementById("apiKey").value.trim();
+            if (accessKey) requestHeaders.Authorization = `Bearer ${accessKey}`;
           }
           const response = await fetch(processingMode === "worker" ? "/api/queue-job" : "/api/clone-and-speak", {
             method: "POST",
