@@ -92,6 +92,11 @@ export default async function handler(req, res) {
       return sendJson(res, 400, { ok: false, error: "Target song/audio is required for replacement jobs." });
     }
 
+    const principal = storage.provider === "supabase" ? authenticateUploadRequest(req) : "local";
+    if (storage.provider === "supabase" && !principal) {
+      return sendJson(res, 401, { ok: false, error: "Authorized upload access key required for Supabase worker jobs." });
+    }
+
     const uploadSessionId = String(body.uploadSessionId || "");
     const containsReferencedAudio = files.some((file) => Boolean(file?.path)) || Boolean(body.targetFile?.path);
     const containsInlineAudio = files.some((file) => Boolean(file?.data)) || Boolean(body.targetFile?.data);
@@ -122,8 +127,6 @@ export default async function handler(req, res) {
     let stagedJob = null;
     let expectedPaths = null;
     if (uploadSessionId) {
-      const principal = authenticateUploadRequest(req);
-      if (!principal) return sendJson(res, 401, { ok: false, error: "Authorized upload access key required to finalize this job." });
       stagedJob = await getJob(uploadSessionId);
       if (!stagedJob || stagedJob.status !== "uploading") {
         return sendJson(res, 409, { ok: false, error: "Upload session is missing, expired, or already finalized." });
