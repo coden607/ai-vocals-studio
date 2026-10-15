@@ -1,5 +1,6 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createJob, getJob, storageConfig, supabaseConfig, supabaseRequest, updateJob } from "./_supabase.js";
+import { authenticateUploadRequest } from "./_upload-auth.js";
 
 export const config = {
   api: { bodyParser: { sizeLimit: "128kb" } },
@@ -43,26 +44,6 @@ function directStorageEndpoint(supabaseUrl) {
     }
   }
   return `${supabaseUrl.replace(/\/+$/, "")}/storage/v1/upload/resumable`;
-}
-
-function configuredUploadSecret() {
-  return String(process.env.UPLOAD_ACCESS_TOKEN || process.env.ELEVENLABS_API_KEY || "");
-}
-
-function bearerToken(req) {
-  const header = String(req.headers?.authorization || "");
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : "";
-}
-
-function authenticate(req) {
-  const expected = configuredUploadSecret();
-  const provided = bearerToken(req);
-  if (!expected || !provided) return null;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(provided);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return createHash("sha256").update(provided).digest("hex").slice(0, 24);
 }
 
 function boundedLimit(value, fallback) {
@@ -116,7 +97,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const principal = authenticate(req);
+    const principal = authenticateUploadRequest(req);
     if (!principal) {
       return sendJson(res, 401, {
         ok: false,
