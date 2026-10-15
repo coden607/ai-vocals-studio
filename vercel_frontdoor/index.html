@@ -728,6 +728,8 @@
         }
         button.disabled = true;
         voiceAudio.hidden = true; mixAudio.hidden = true; downloadVoice.hidden = true; downloadMix.hidden = true;
+        let activeUploadSessionId = null;
+        let activeUploadAccessKey = null;
         try {
           setStatus("Analyzing reference quality...");
           latestReferenceMetrics = await analyzeReferenceFiles(files);
@@ -742,6 +744,8 @@
             setStatus("Uploading audio directly to Supabase in resumable 6 MB chunks...");
             try {
               workerUploads = await uploadWorkerInputs(files, targetFile, taskMode);
+              activeUploadSessionId = workerUploads.uploadSessionId;
+              activeUploadAccessKey = workerUploads.accessKey;
             } catch (uploadError) {
               if (uploadSize > 3 * 1024 * 1024) throw uploadError;
               setStatus("Direct upload unavailable; using compatibility upload for this small job...");
@@ -807,6 +811,7 @@
           setStatus(`Ready. Voice ID ${payload.voiceId}${payload.deleted ? " was deleted after generation." : " was kept in ElevenLabs."}`);
           loadJobs();
         } catch (err) {
+          await abortUploadSession(activeUploadSessionId, activeUploadAccessKey, err.message || String(err));
           setStatus(err.message || String(err), true);
         } finally {
           button.disabled = false;
