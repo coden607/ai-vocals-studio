@@ -38,6 +38,22 @@ function qualityGate(metrics, target = "studio") {
   };
 }
 
+function validQueuedPath(value, role) {
+  const folder = role === "target" ? "target" : "voices";
+  return new RegExp(`^queued/[0-9a-f-]{36}/${folder}/[0-9a-f-]{36}-[^/]+$`, "i").test(String(value || ""));
+}
+
+function referencedFile(file, role) {
+  if (!file?.path || !validQueuedPath(file.path, role)) return null;
+  return {
+    name: cleanName(file.name || (role === "target" ? "target-audio.wav" : "voice-sample.wav")).replace(/\s+/g, "_"),
+    type: String(file.type || "application/octet-stream"),
+    size: Number(file.size || 0),
+    path: String(file.path),
+    url: null,
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -58,19 +74,21 @@ export default async function handler(req, res) {
     let separation = String(body.separation || "demucs");
     const allowedSeparation = new Set(["auto", "demucs", "center"]);
     if (!allowedSeparation.has(separation)) return sendJson(res, 400, { ok: false, error: "Unsupported separation mode." });
-    // Studio/Pro song replacement is fail-closed: the worker must separate the
-    // real vocal and instrumental stems before voice conversion/remix.
     if (taskMode === "song_replace" && ["studio", "pro"].includes(qualityTarget)) separation = "demucs";
     if (!body.permission) return sendJson(res, 400, { ok: false, error: "Permission confirmation is required." });
     if (!files.length) return sendJson(res, 400, { ok: false, error: "Upload at least one voice sample." });
     if (taskMode === "voiceover" && !text) return sendJson(res, 400, { ok: false, error: "Voice-over text is required." });
-    if (!["voiceover", "rvc_train"].includes(taskMode) && !body.targetFile?.data) {
+    if (!["voiceover", "rvc_train"].includes(taskMode) && !body.targetFile?.path && !body.targetFile?.data) {
       return sendJson(res, 400, { ok: false, error: "Target song/audio is required for replacement jobs." });
     }
 
     const totalBytes = files.reduce((sum, file) => sum + Number(file.size || 0), 0) + Number(body.targetFile?.size || 0);
-    if (totalBytes > 14 * 1024 * 1024) {
-      return sendJson(res, 413, { ok: false, error: "Uploaded audio is too large for Vercel serverless queueing. Use shorter clips or run the local app/worker directly for large songs." });
+    const containsInlineAudio = files.some((file) => Boolean(file?.data)) || Boolean(body.targetFile?.data);
+    if (containsInlineAudio && totalBytes > 14 * 1024 * 1024) {
+      return sendJson(res, 413, {
+        ok: false,
+        error: "Inline audio is too large for Vercel serverless queueing. Use the resumable Supabase upload path.",
+      });
     }
     const gate = qualityGate(body.referenceMetrics, qualityTarget);
     if (!gate.ok) {
@@ -84,7 +102,17 @@ export default async function handler(req, res) {
     const jobPrefix = `queued/${randomUUID()}`;
     const storedFiles = [];
     for (const file of files.slice(0, 6)) {
-      if (!file || !file.data) continue;
+      if (!file) continue;
+      if (file.path) {
+        if (storage.provider !== "supabase") {
+          return sendJson(res, 400, { ok: false, error: "Referenced uploads require Supabase Storage." });
+        }
+        const referenced = referencedFile(file, "voice");
+        if (!referenced) return sendJson(res, 400, { ok: false, error: "Invalid queued voice object path." });
+        storedFiles.push(referenced);
+        continue;
+      }
+      if (!file.data) continue;
       const safeName = cleanName(file.name || "voice-sample.wav").replace(/\s+/g, "_");
       const path = `${jobPrefix}/voices/${Date.now()}-${safeName}`;
       const buffer = Buffer.from(String(file.data), "base64");
@@ -97,20 +125,30 @@ export default async function handler(req, res) {
         url: publicUrl,
       });
     }
+    if (!storedFiles.length) return sendJson(res, 400, { ok: false, error: "No usable voice uploads were supplied." });
+
     let storedTarget = null;
     if (!["voiceover", "rvc_train"].includes(taskMode)) {
       const target = body.targetFile;
-      const safeName = cleanName(target.name || "target-audio.wav").replace(/\s+/g, "_");
-      const path = `${jobPrefix}/target/${Date.now()}-${safeName}`;
-      const buffer = Buffer.from(String(target.data), "base64");
-      const publicUrl = await uploadObject(path, buffer, target.type || "application/octet-stream");
-      storedTarget = {
-        name: safeName,
-        type: target.type || "application/octet-stream",
-        size: Number(target.size || buffer.length),
-        path,
-        url: publicUrl,
-      };
+      if (target?.path) {
+        if (storage.provider !== "supabase") {
+          return sendJson(res, 400, { ok: false, error: "Referenced target uploads require Supabase Storage." });
+        }
+        storedTarget = referencedFile(target, "target");
+        if (!storedTarget) return sendJson(res, 400, { ok: false, error: "Invalid queued target object path." });
+      } else {
+        const safeName = cleanName(target.name || "target-audio.wav").replace(/\s+/g, "_");
+        const path = `${jobPrefix}/target/${Date.now()}-${safeName}`;
+        const buffer = Buffer.from(String(target.data), "base64");
+        const publicUrl = await uploadObject(path, buffer, target.type || "application/octet-stream");
+        storedTarget = {
+          name: safeName,
+          type: target.type || "application/octet-stream",
+          size: Number(target.size || buffer.length),
+          path,
+          url: publicUrl,
+        };
+      }
     }
     const workerMode = taskMode === "song_replace" ? "song" : taskMode === "clip_convert" ? "clip" : "bed";
 
@@ -141,6 +179,7 @@ export default async function handler(req, res) {
       report: {
         queuedBy: "vercel",
         storageProvider: storage.provider,
+        uploadMode: containsInlineAudio ? "server_inline" : "direct_resumable",
         totalSampleMb: Math.round((totalBytes / (1024 * 1024)) * 100) / 100,
         referenceMetrics: body.referenceMetrics || null,
       },
