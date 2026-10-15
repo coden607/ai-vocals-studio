@@ -91,8 +91,9 @@
         <form id="voiceForm" class="card">
           <div class="row">
             <div class="field">
-              <label for="apiKey">ElevenLabs API key</label>
-              <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="Uses Vercel env if blank">
+              <label for="apiKey">Access / ElevenLabs API key</label>
+              <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="Required for large worker uploads">
+              <p class="small">Large Supabase uploads require the configured upload access key (or matching ElevenLabs key). It is sent only to this app over HTTPS and is never forwarded to Supabase.</p>
             </div>
             <div class="field">
               <label for="voiceName">Voice label</label>
@@ -139,11 +140,9 @@
           <div class="field" id="separationField" hidden>
             <label for="separation">Song vocal separation</label>
             <select id="separation" name="separation">
-              <option value="auto" selected>Auto: best available</option>
-              <option value="demucs">Demucs: best quality, slower first run</option>
-              <option value="center">Center-channel: fastest test mode</option>
+              <option value="demucs" selected>Demucs: separate vocals + instrumental first</option>
             </select>
-            <p class="small">Use center-channel for quick checks. Use Demucs for better real song separation after the model is cached on the worker.</p>
+            <p class="small">Every full-song replacement is separated with Demucs before voice conversion. Clean voice references, isolated vocals, and instrumental-only beats bypass separation.</p>
           </div>
           <div id="proMatchNotice" class="readiness small" hidden>
             Pro-match replacement requires a trained RVC model on the worker for this voice. Without RVC, the worker will stop instead of returning a weaker DSP clone.
@@ -324,17 +323,18 @@
         const chunkSize = Number(uploadConfig.chunkSize || 6 * 1024 * 1024);
         let offset = 0;
         while (offset < file.size) {
-          const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size));
           let uploaded = false;
           let lastError = null;
           for (let attempt = 0; attempt < TUS_RETRY_DELAYS.length && !uploaded; attempt++) {
             if (TUS_RETRY_DELAYS[attempt]) await sleep(TUS_RETRY_DELAYS[attempt]);
+            const chunkStart = offset;
+            const chunk = file.slice(chunkStart, Math.min(chunkStart + chunkSize, file.size));
             try {
               const response = await fetch(uploadUrl, {
                 method: "PATCH",
                 headers: {
                   "Tus-Resumable": TUS_VERSION,
-                  "Upload-Offset": String(offset),
+                  "Upload-Offset": String(chunkStart),
                   "Content-Type": "application/offset+octet-stream",
                   "x-signature": ticket.token,
                 },
@@ -345,25 +345,30 @@
                 throw new Error(`Upload chunk failed (${response.status}): ${detail || response.statusText}`);
               }
               const serverOffset = Number(response.headers.get("Upload-Offset"));
-              offset = Number.isFinite(serverOffset) && serverOffset > offset ? serverOffset : offset + chunk.size;
+              offset = Number.isFinite(serverOffset) && serverOffset > chunkStart ? serverOffset : chunkStart + chunk.size;
               uploaded = true;
               onProgress?.(Math.min(offset, file.size), file.size);
             } catch (error) {
               lastError = error;
               try {
-                offset = await getTusOffset(uploadUrl, ticket);
-                if (offset >= file.size) {
+                const recoveredOffset = await getTusOffset(uploadUrl, ticket);
+                if (recoveredOffset !== chunkStart) {
+                  // The server may already have committed this PATCH even when its
+                  // response was lost. Restart the outer loop so the next Blob is
+                  // re-sliced from the recovered offset instead of duplicating bytes.
+                  offset = recoveredOffset;
                   uploaded = true;
-                  onProgress?.(file.size, file.size);
+                  onProgress?.(Math.min(offset, file.size), file.size);
                 }
               } catch {
-                // Keep the original chunk error; the next retry may recover.
+                // Keep the original chunk error; retry from the same offset.
               }
             }
           }
           if (!uploaded) throw lastError || new Error("Resumable upload failed.");
         }
         return {
+          clientId: ticket.clientId,
           name: ticket.name || file.name,
           type: ticket.type || file.type || "application/octet-stream",
           size: file.size,
@@ -371,13 +376,56 @@
         };
       }
 
+      async function requestUploadTicket(item, taskMode, uploadSessionId, accessKey) {
+        const response = await fetch("/api/upload-ticket", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessKey}`,
+          },
+          body: JSON.stringify({
+            permission: document.getElementById("permission").checked,
+            taskMode,
+            uploadSessionId: uploadSessionId || undefined,
+            voiceName: document.getElementById("voiceName").value,
+            text: taskMode === "voiceover" ? document.getElementById("scriptText").value : "",
+            qualityTarget: document.getElementById("studioQuality").checked ? document.getElementById("qualityTarget").value : "draft",
+            file: item,
+          }),
+        });
+        return readJsonResponse(response, "Upload preparation");
+      }
+
+      async function abortUploadSession(uploadSessionId, accessKey, reason) {
+        if (!uploadSessionId || !accessKey) return;
+        try {
+          await fetch("/api/upload-abort", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessKey}`,
+            },
+            body: JSON.stringify({ uploadSessionId, reason: String(reason || "Upload aborted.") }),
+            keepalive: true,
+          });
+        } catch {
+          // Best-effort cleanup; the server also keeps the failed upload session auditable.
+        }
+      }
+
       async function uploadWorkerInputs(files, targetFile, taskMode) {
+        const accessKey = document.getElementById("apiKey").value.trim();
+        if (!accessKey) {
+          throw new Error("Large worker uploads require the configured upload access key in the Access / ElevenLabs API key field.");
+        }
+
         const requested = files.slice(0, 6).map((file, index) => ({
           clientId: `voice:${index}`,
           role: "voice",
           name: file.name,
           type: file.type || "application/octet-stream",
           size: file.size,
+          file,
         }));
         if (targetFile) {
           requested.push({
@@ -386,48 +434,41 @@
             name: targetFile.name,
             type: targetFile.type || "application/octet-stream",
             size: targetFile.size,
+            file: targetFile,
           });
         }
-        const response = await fetch("/api/upload-ticket", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            permission: document.getElementById("permission").checked,
-            taskMode,
-            files: requested,
-          }),
-        });
-        const uploadConfig = await readJsonResponse(response, "Upload preparation");
-        const ticketById = new Map((uploadConfig.tickets || []).map((ticket) => [ticket.clientId, ticket]));
+
         const totalBytes = requested.reduce((sum, item) => sum + Number(item.size || 0), 0);
         let completedBytes = 0;
+        let uploadSessionId = null;
         const storedFiles = [];
         let storedTarget = null;
 
-        for (let index = 0; index < files.slice(0, 6).length; index++) {
-          const file = files[index];
-          const ticket = ticketById.get(`voice:${index}`);
-          if (!ticket) throw new Error(`Missing upload ticket for ${file.name}.`);
-          const stored = await uploadTusFile(file, ticket, uploadConfig, (fileBytes) => {
-            const overall = Math.round(((completedBytes + fileBytes) / Math.max(1, totalBytes)) * 100);
-            const current = Math.round((fileBytes / Math.max(1, file.size)) * 100);
-            setStatus(`Uploading ${file.name}: ${current}% · overall ${overall}%`);
-          });
-          storedFiles.push(stored);
-          completedBytes += file.size;
+        try {
+          for (const item of requested) {
+            // Mint/refresh a short-lived ticket immediately before this file starts.
+            const ticketResponse = await requestUploadTicket(
+              { clientId: item.clientId, role: item.role, name: item.name, type: item.type, size: item.size },
+              taskMode,
+              uploadSessionId,
+              accessKey,
+            );
+            uploadSessionId = ticketResponse.uploadSessionId;
+            const ticket = ticketResponse.ticket;
+            const stored = await uploadTusFile(item.file, ticket, ticketResponse, (fileBytes) => {
+              const overall = Math.round(((completedBytes + fileBytes) / Math.max(1, totalBytes)) * 100);
+              const current = Math.round((fileBytes / Math.max(1, item.size)) * 100);
+              setStatus(`Uploading ${item.name}: ${current}% · overall ${overall}%`);
+            });
+            if (item.role === "target") storedTarget = stored;
+            else storedFiles.push(stored);
+            completedBytes += item.size;
+          }
+          return { files: storedFiles, targetFile: storedTarget, uploadSessionId, accessKey };
+        } catch (error) {
+          await abortUploadSession(uploadSessionId, accessKey, error.message || String(error));
+          throw error;
         }
-
-        if (targetFile) {
-          const ticket = ticketById.get("target:0");
-          if (!ticket) throw new Error(`Missing upload ticket for ${targetFile.name}.`);
-          storedTarget = await uploadTusFile(targetFile, ticket, uploadConfig, (fileBytes) => {
-            const overall = Math.round(((completedBytes + fileBytes) / Math.max(1, totalBytes)) * 100);
-            const current = Math.round((fileBytes / Math.max(1, targetFile.size)) * 100);
-            setStatus(`Uploading ${targetFile.name}: ${current}% · overall ${overall}%`);
-          });
-          completedBytes += targetFile.size;
-        }
-        return { files: storedFiles, targetFile: storedTarget };
       }
 
       function estimateFit(files) {
@@ -436,13 +477,57 @@
         const sizeScore = Math.min(1, totalMb / 3);
         return Math.round((0.45 * countScore + 0.55 * sizeScore) * 100);
       }
+      const MAX_BROWSER_DECODE_BYTES = 8 * 1024 * 1024;
+
+      function probeAudioDuration(file) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const audio = document.createElement("audio");
+          const finish = (callback, value) => {
+            URL.revokeObjectURL(url);
+            audio.removeAttribute("src");
+            callback(value);
+          };
+          const timer = setTimeout(() => finish(reject, new Error(`Could not read metadata for ${file.name}.`)), 12000);
+          audio.preload = "metadata";
+          audio.onloadedmetadata = () => {
+            clearTimeout(timer);
+            const duration = Number(audio.duration);
+            if (!Number.isFinite(duration) || duration <= 0) return finish(reject, new Error(`Invalid audio duration for ${file.name}.`));
+            finish(resolve, duration);
+          };
+          audio.onerror = () => {
+            clearTimeout(timer);
+            finish(reject, new Error(`Could not read audio metadata for ${file.name}.`));
+          };
+          audio.src = url;
+        });
+      }
+
       async function analyzeReferenceFiles(files) {
         const audioCtx = new AudioContext();
         const perFile = [];
         let totalDurationS = 0;
+        let analyzedDurationS = 0;
         let weightedRms = 0;
         let maxClippingFraction = 0;
+        let usedMetadataOnly = false;
+
         for (const file of files) {
+          if (file.size > MAX_BROWSER_DECODE_BYTES) {
+            const duration = await probeAudioDuration(file);
+            totalDurationS += duration;
+            usedMetadataOnly = true;
+            perFile.push({
+              name: file.name,
+              durationS: Number(duration.toFixed(2)),
+              rms: null,
+              clippingFraction: null,
+              analysis: "metadata",
+            });
+            continue;
+          }
+
           const arrayBuffer = await file.arrayBuffer();
           const buffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
           const channel = buffer.getChannelData(0);
@@ -459,21 +544,32 @@
           const rms = Math.sqrt(sum / Math.max(1, samples));
           const clippingFraction = clipped / Math.max(1, samples);
           totalDurationS += buffer.duration;
+          analyzedDurationS += buffer.duration;
           weightedRms += rms * buffer.duration;
           maxClippingFraction = Math.max(maxClippingFraction, clippingFraction);
-          perFile.push({ name: file.name, durationS: Number(buffer.duration.toFixed(2)), rms: Number(rms.toFixed(5)), clippingFraction: Number(clippingFraction.toFixed(5)) });
+          perFile.push({
+            name: file.name,
+            durationS: Number(buffer.duration.toFixed(2)),
+            rms: Number(rms.toFixed(5)),
+            clippingFraction: Number(clippingFraction.toFixed(5)),
+            analysis: "decoded",
+          });
         }
-        weightedRms = weightedRms / Math.max(1, totalDurationS);
+
+        const averageRms = analyzedDurationS > 0 ? weightedRms / analyzedDurationS : null;
         const durationScore = Math.min(1, totalDurationS / 60);
-        const rmsScore = Math.min(1, weightedRms / 0.08);
         const countScore = Math.min(1, files.length / 3);
-        const clippingPenalty = Math.min(0.4, maxClippingFraction * 20);
-        const fitScore = Math.round(Math.max(0, Math.min(1, 0.48 * durationScore + 0.24 * rmsScore + 0.28 * countScore - clippingPenalty)) * 100);
+        const acousticScore = averageRms == null ? 0.75 : Math.min(1, averageRms / 0.08);
+        const clippingPenalty = usedMetadataOnly ? 0 : Math.min(0.4, maxClippingFraction * 20);
+        const fitScore = Math.round(
+          Math.max(0, Math.min(1, 0.56 * durationScore + 0.30 * countScore + 0.14 * acousticScore - clippingPenalty)) * 100
+        );
         return {
           fitScore,
           totalDurationS: Number(totalDurationS.toFixed(2)),
-          averageRms: Number(weightedRms.toFixed(5)),
-          maxClippingFraction: Number(maxClippingFraction.toFixed(5)),
+          averageRms: averageRms == null ? null : Number(averageRms.toFixed(5)),
+          maxClippingFraction: usedMetadataOnly ? null : Number(maxClippingFraction.toFixed(5)),
+          analysisMode: usedMetadataOnly ? "bounded_metadata" : "decoded",
           files: perFile,
         };
       }
@@ -488,11 +584,14 @@
         const recommendation = metrics.totalDurationS < 60
           ? "Add more clean voice if possible; 60+ seconds improves match."
           : "Reference duration is strong.";
-        const clipping = metrics.maxClippingFraction > 0.02
+        const clipping = metrics.maxClippingFraction != null && metrics.maxClippingFraction > 0.02
           ? " Clipping detected; use a cleaner lower-gain recording."
           : "";
+        const analysisNote = metrics.analysisMode === "bounded_metadata"
+          ? " Large files were metadata-checked in-browser; the worker performs the full audio validation."
+          : ` RMS ${metrics.averageRms}.`;
         box.className = `readiness small ${level}`;
-        box.textContent = `Clone readiness: ${metrics.fitScore}% · ${metrics.totalDurationS}s voice · RMS ${metrics.averageRms}.${clipping} ${recommendation}`;
+        box.textContent = `Clone readiness: ${metrics.fitScore}% · ${metrics.totalDurationS}s voice.${analysisNote}${clipping} ${recommendation}`;
       }
       function qualityTargetReasons(metrics, target) {
         if (!metrics || target === "draft" || !document.getElementById("studioQuality").checked) return [];
@@ -500,12 +599,12 @@
         const fileCount = Array.isArray(metrics.files) ? metrics.files.length : 0;
         if (metrics.totalDurationS < 20) reasons.push("Upload at least 20 seconds of clean single-speaker voice.");
         if (metrics.fitScore < 60) reasons.push("Studio mode requires input fit of 60% or higher.");
-        if (metrics.maxClippingFraction > 0.02) reasons.push("Samples appear clipped/distorted.");
+        if (metrics.maxClippingFraction != null && metrics.maxClippingFraction > 0.02) reasons.push("Samples appear clipped/distorted.");
         if (target === "pro") {
           if (metrics.totalDurationS < 90) reasons.push("Pro-match requires 90+ seconds of clean authorized reference voice.");
           if (fileCount < 3) reasons.push("Pro-match requires at least 3 separate reference clips.");
           if (metrics.fitScore < 85) reasons.push("Pro-match requires input fit of 85% or higher.");
-          if (metrics.maxClippingFraction > 0.005) reasons.push("Pro-match needs unclipped lower-gain audio.");
+          if (metrics.maxClippingFraction != null && metrics.maxClippingFraction > 0.005) reasons.push("Pro-match needs unclipped lower-gain audio.");
         }
         return reasons;
       }
@@ -525,6 +624,7 @@
         scriptField.hidden = !isVoiceover;
         targetField.hidden = isVoiceover || isTraining;
         separationField.hidden = taskMode !== "song_replace";
+        if (taskMode === "song_replace") document.getElementById("separation").value = "demucs";
         proMatchNotice.hidden = isVoiceover || isTraining || !isPro;
         bedField.hidden = !isVoiceover;
         scriptText.required = isVoiceover;
@@ -643,8 +743,8 @@
             try {
               workerUploads = await uploadWorkerInputs(files, targetFile, taskMode);
             } catch (uploadError) {
-              if (uploadSize > 14 * 1024 * 1024) throw uploadError;
-              setStatus("Direct upload unavailable; using compatibility upload for this smaller job...");
+              if (uploadSize > 3 * 1024 * 1024) throw uploadError;
+              setStatus("Direct upload unavailable; using compatibility upload for this small job...");
               for (const file of files) encoded.push({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: await readFileAsBase64(file) });
               targetPayload = targetFile ? { name: targetFile.name, type: targetFile.type || "application/octet-stream", size: targetFile.size, data: await readFileAsBase64(targetFile) } : null;
             }
@@ -654,9 +754,13 @@
             targetPayload = targetFile ? { name: targetFile.name, type: targetFile.type || "application/octet-stream", size: targetFile.size, data: await readFileAsBase64(targetFile) } : null;
           }
           setStatus(isTraining ? "Queueing RVC training job for the local worker..." : processingMode === "worker" ? "Queueing full local worker job in Supabase..." : "Cloning voice and generating voice-over on Vercel...");
+          const requestHeaders = { "Content-Type": "application/json" };
+          if (processingMode === "worker" && workerUploads?.uploadSessionId) {
+            requestHeaders.Authorization = `Bearer ${workerUploads.accessKey}`;
+          }
           const response = await fetch(processingMode === "worker" ? "/api/queue-job" : "/api/clone-and-speak", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: requestHeaders,
             body: JSON.stringify({
               apiKey: document.getElementById("apiKey").value,
               voiceName: document.getElementById("voiceName").value,
@@ -672,6 +776,7 @@
               referenceMetrics: latestReferenceMetrics,
               files: workerUploads?.files || encoded,
               targetFile: workerUploads?.targetFile || targetPayload,
+              uploadSessionId: workerUploads?.uploadSessionId || undefined,
             }),
           });
           const payload = await readJsonResponse(response, "Voice generation request");
