@@ -119,6 +119,19 @@ export async function createJob(payload) {
   return rows?.[0] || null;
 }
 
+export async function getJob(id) {
+  if (!id) return null;
+  if (!supabaseConfig().enabled) {
+    const jobs = await readLocalJobs();
+    return jobs.find((job) => String(job.id) === String(id)) || null;
+  }
+  const response = await supabaseRequest(
+    `/rest/v1/voiceover_jobs?id=eq.${encodeURIComponent(id)}&select=*&limit=1`,
+  );
+  const rows = await response.json();
+  return rows?.[0] || null;
+}
+
 export async function updateJob(id, patch) {
   if (!id) return null;
   if (!supabaseConfig().enabled) {
