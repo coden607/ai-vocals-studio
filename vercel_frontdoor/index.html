@@ -477,7 +477,7 @@
         const sizeScore = Math.min(1, totalMb / 3);
         return Math.round((0.45 * countScore + 0.55 * sizeScore) * 100);
       }
-      const MAX_BROWSER_DECODE_BYTES = 8 * 1024 * 1024;
+      const MAX_BROWSER_DECODE_BYTES = 2 * 1024 * 1024;
 
       function probeAudioDuration(file) {
         return new Promise((resolve, reject) => {
