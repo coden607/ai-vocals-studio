@@ -180,6 +180,29 @@ export async function uploadObject(objectPath, buffer, contentType = "applicatio
   return `${cfg.url}/storage/v1/object/public/${encodeURIComponent(cfg.bucket)}/${objectPath}`;
 }
 
+export async function deleteObjects(objectPaths) {
+  const paths = [...new Set((objectPaths || []).map((value) => String(value || "").replace(/^\/+/, "")).filter(Boolean))];
+  if (!paths.length) return;
+  const cfg = supabaseConfig();
+  if (!cfg.enabled) {
+    const root = await ensureLocalRoot();
+    for (const objectPath of paths) {
+      const target = pathModuleSafe(pathModule.join(root, "objects"), objectPath);
+      try {
+        await fs.unlink(target);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    return;
+  }
+  await supabaseRequest(`/storage/v1/object/${encodeURIComponent(cfg.bucket)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prefixes: paths }),
+  });
+}
+
 export async function uploadAudio(path, buffer, contentType = "audio/mpeg") {
   return uploadObject(path, buffer, contentType);
 }
