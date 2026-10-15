@@ -250,6 +250,186 @@
           reader.readAsDataURL(file);
         });
       }
+      const TUS_VERSION = "1.0.0";
+      const TUS_RETRY_DELAYS = [0, 1000, 3000, 5000, 10000];
+
+      function utf8Base64(value) {
+        const bytes = new TextEncoder().encode(String(value ?? ""));
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary);
+      }
+
+      function tusMetadata(bucket, objectPath, file) {
+        const fields = {
+          bucketName: bucket,
+          objectName: objectPath,
+          contentType: file.type || "application/octet-stream",
+          cacheControl: "3600",
+        };
+        return Object.entries(fields)
+          .map(([key, value]) => `${key} ${utf8Base64(value)}`)
+          .join(",");
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function getTusOffset(uploadUrl, ticket) {
+        const response = await fetch(uploadUrl, {
+          method: "HEAD",
+          headers: {
+            "Tus-Resumable": TUS_VERSION,
+            "x-signature": ticket.token,
+          },
+        });
+        if (!response.ok) throw new Error(`Could not resume upload (${response.status}).`);
+        const offset = Number(response.headers.get("Upload-Offset"));
+        if (!Number.isFinite(offset) || offset < 0) throw new Error("Upload server returned an invalid resume offset.");
+        return offset;
+      }
+
+      async function createTusUpload(file, ticket, uploadConfig) {
+        let lastError = null;
+        for (let attempt = 0; attempt < TUS_RETRY_DELAYS.length; attempt++) {
+          if (TUS_RETRY_DELAYS[attempt]) await sleep(TUS_RETRY_DELAYS[attempt]);
+          try {
+            const response = await fetch(uploadConfig.endpoint, {
+              method: "POST",
+              headers: {
+                "Tus-Resumable": TUS_VERSION,
+                "Upload-Length": String(file.size),
+                "Upload-Metadata": tusMetadata(uploadConfig.bucket, ticket.path, file),
+                "x-signature": ticket.token,
+                "x-upsert": "false",
+              },
+            });
+            if (!response.ok) {
+              const detail = (await response.text()).replace(/\s+/g, " ").trim().slice(0, 180);
+              throw new Error(`Upload start failed (${response.status}): ${detail || response.statusText}`);
+            }
+            const location = response.headers.get("Location");
+            if (!location) throw new Error("Upload server did not return a resumable upload URL.");
+            return new URL(location, uploadConfig.endpoint).toString();
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        throw lastError || new Error("Could not start resumable upload.");
+      }
+
+      async function uploadTusFile(file, ticket, uploadConfig, onProgress) {
+        const uploadUrl = await createTusUpload(file, ticket, uploadConfig);
+        const chunkSize = Number(uploadConfig.chunkSize || 6 * 1024 * 1024);
+        let offset = 0;
+        while (offset < file.size) {
+          const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size));
+          let uploaded = false;
+          let lastError = null;
+          for (let attempt = 0; attempt < TUS_RETRY_DELAYS.length && !uploaded; attempt++) {
+            if (TUS_RETRY_DELAYS[attempt]) await sleep(TUS_RETRY_DELAYS[attempt]);
+            try {
+              const response = await fetch(uploadUrl, {
+                method: "PATCH",
+                headers: {
+                  "Tus-Resumable": TUS_VERSION,
+                  "Upload-Offset": String(offset),
+                  "Content-Type": "application/offset+octet-stream",
+                  "x-signature": ticket.token,
+                },
+                body: chunk,
+              });
+              if (!response.ok) {
+                const detail = (await response.text()).replace(/\s+/g, " ").trim().slice(0, 180);
+                throw new Error(`Upload chunk failed (${response.status}): ${detail || response.statusText}`);
+              }
+              const serverOffset = Number(response.headers.get("Upload-Offset"));
+              offset = Number.isFinite(serverOffset) && serverOffset > offset ? serverOffset : offset + chunk.size;
+              uploaded = true;
+              onProgress?.(Math.min(offset, file.size), file.size);
+            } catch (error) {
+              lastError = error;
+              try {
+                offset = await getTusOffset(uploadUrl, ticket);
+                if (offset >= file.size) {
+                  uploaded = true;
+                  onProgress?.(file.size, file.size);
+                }
+              } catch {
+                // Keep the original chunk error; the next retry may recover.
+              }
+            }
+          }
+          if (!uploaded) throw lastError || new Error("Resumable upload failed.");
+        }
+        return {
+          name: ticket.name || file.name,
+          type: ticket.type || file.type || "application/octet-stream",
+          size: file.size,
+          path: ticket.path,
+        };
+      }
+
+      async function uploadWorkerInputs(files, targetFile, taskMode) {
+        const requested = files.slice(0, 6).map((file, index) => ({
+          clientId: `voice:${index}`,
+          role: "voice",
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+        }));
+        if (targetFile) {
+          requested.push({
+            clientId: "target:0",
+            role: "target",
+            name: targetFile.name,
+            type: targetFile.type || "application/octet-stream",
+            size: targetFile.size,
+          });
+        }
+        const response = await fetch("/api/upload-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            permission: document.getElementById("permission").checked,
+            taskMode,
+            files: requested,
+          }),
+        });
+        const uploadConfig = await readJsonResponse(response, "Upload preparation");
+        const ticketById = new Map((uploadConfig.tickets || []).map((ticket) => [ticket.clientId, ticket]));
+        const totalBytes = requested.reduce((sum, item) => sum + Number(item.size || 0), 0);
+        let completedBytes = 0;
+        const storedFiles = [];
+        let storedTarget = null;
+
+        for (let index = 0; index < files.slice(0, 6).length; index++) {
+          const file = files[index];
+          const ticket = ticketById.get(`voice:${index}`);
+          if (!ticket) throw new Error(`Missing upload ticket for ${file.name}.`);
+          const stored = await uploadTusFile(file, ticket, uploadConfig, (fileBytes) => {
+            const overall = Math.round(((completedBytes + fileBytes) / Math.max(1, totalBytes)) * 100);
+            const current = Math.round((fileBytes / Math.max(1, file.size)) * 100);
+            setStatus(`Uploading ${file.name}: ${current}% · overall ${overall}%`);
+          });
+          storedFiles.push(stored);
+          completedBytes += file.size;
+        }
+
+        if (targetFile) {
+          const ticket = ticketById.get("target:0");
+          if (!ticket) throw new Error(`Missing upload ticket for ${targetFile.name}.`);
+          storedTarget = await uploadTusFile(targetFile, ticket, uploadConfig, (fileBytes) => {
+            const overall = Math.round(((completedBytes + fileBytes) / Math.max(1, totalBytes)) * 100);
+            const current = Math.round((fileBytes / Math.max(1, targetFile.size)) * 100);
+            setStatus(`Uploading ${targetFile.name}: ${current}% · overall ${overall}%`);
+          });
+          completedBytes += targetFile.size;
+        }
+        return { files: storedFiles, targetFile: storedTarget };
+      }
+
       function estimateFit(files) {
         const totalMb = files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024);
         const countScore = Math.min(1, files.length / 3);
@@ -439,10 +619,12 @@
         const targetFile = document.getElementById("targetFile").files[0];
         if (!files.length) return setStatus("Upload at least one voice sample.", true);
         if (!isVoiceover && !isTraining && !targetFile) return setStatus("Upload the song/audio that should receive the cloned voice.", true);
+        const processingMode = isVoiceover ? document.getElementById("processingMode").value : "worker";
         const uploadSize = uploadBytes(files, targetFile);
-        // Base64 plus JSON metadata expands the request; stay below Vercel's platform limit.
-        if (uploadSize > 3 * 1024 * 1024) {
-          return setStatus("These files are too large for the hosted Vercel upload path. Use FLAC/MP3 or run the local/GPU worker for longer training sets and songs.", true);
+        // Instant hosted cloning still sends base64 through Vercel. Worker jobs bypass
+        // that request ceiling by uploading audio directly to Supabase Storage via TUS.
+        if (processingMode !== "worker" && uploadSize > 3 * 1024 * 1024) {
+          return setStatus("Instant hosted cloning is limited to about 3 MB of source audio. Choose the Supabase worker mode for larger reference sets.", true);
         }
         button.disabled = true;
         voiceAudio.hidden = true; mixAudio.hidden = true; downloadVoice.hidden = true; downloadMix.hidden = true;
@@ -453,11 +635,24 @@
           const qualityTarget = document.getElementById("studioQuality").checked ? document.getElementById("qualityTarget").value : "draft";
           const qualityReasons = qualityTargetReasons(latestReferenceMetrics, qualityTarget);
           if (qualityReasons.length) throw new Error(`${qualityTarget === "pro" ? "Pro-match" : "Studio-match"} needs better voice samples. ${qualityReasons.join(" ")}`);
-          setStatus("Reading voice samples...");
-          const encoded = [];
-          for (const file of files) encoded.push({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: await readFileAsBase64(file) });
-          const targetPayload = targetFile ? { name: targetFile.name, type: targetFile.type || "application/octet-stream", size: targetFile.size, data: await readFileAsBase64(targetFile) } : null;
-          const processingMode = isVoiceover ? document.getElementById("processingMode").value : "worker";
+          let encoded = [];
+          let targetPayload = null;
+          let workerUploads = null;
+          if (processingMode === "worker") {
+            setStatus("Uploading audio directly to Supabase in resumable 6 MB chunks...");
+            try {
+              workerUploads = await uploadWorkerInputs(files, targetFile, taskMode);
+            } catch (uploadError) {
+              if (uploadSize > 14 * 1024 * 1024) throw uploadError;
+              setStatus("Direct upload unavailable; using compatibility upload for this smaller job...");
+              for (const file of files) encoded.push({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: await readFileAsBase64(file) });
+              targetPayload = targetFile ? { name: targetFile.name, type: targetFile.type || "application/octet-stream", size: targetFile.size, data: await readFileAsBase64(targetFile) } : null;
+            }
+          } else {
+            setStatus("Reading voice samples...");
+            for (const file of files) encoded.push({ name: file.name, type: file.type || "application/octet-stream", size: file.size, data: await readFileAsBase64(file) });
+            targetPayload = targetFile ? { name: targetFile.name, type: targetFile.type || "application/octet-stream", size: targetFile.size, data: await readFileAsBase64(targetFile) } : null;
+          }
           setStatus(isTraining ? "Queueing RVC training job for the local worker..." : processingMode === "worker" ? "Queueing full local worker job in Supabase..." : "Cloning voice and generating voice-over on Vercel...");
           const response = await fetch(processingMode === "worker" ? "/api/queue-job" : "/api/clone-and-speak", {
             method: "POST",
@@ -475,8 +670,8 @@
               qualityTarget,
               separation: document.getElementById("separation").value,
               referenceMetrics: latestReferenceMetrics,
-              files: encoded,
-              targetFile: targetPayload,
+              files: workerUploads?.files || encoded,
+              targetFile: workerUploads?.targetFile || targetPayload,
             }),
           });
           const payload = await readJsonResponse(response, "Voice generation request");
