@@ -39,3 +39,26 @@ npx vercel --prod --yes --scope stephens-projects-8fbc16d0
 
 The hosted app will then save completed output MP3s to Supabase Storage and list
 recent jobs from `voiceover_jobs`.
+
+
+## Large audio uploads
+
+Worker-mode uploads do not send WAV/MP3 data through the Vercel function body.
+The browser requests short-lived signed upload tickets from
+`/api/upload-ticket` and sends each voice sample / target song directly to
+Supabase Storage using the TUS resumable protocol.
+
+- Chunks are fixed at 6 MB to match Supabase's current resumable-upload guidance.
+- The browser uses the direct `<project-ref>.storage.supabase.co` hostname when
+  the normal Supabase project URL allows it to be derived.
+- Only storage object paths and metadata are sent to `/api/queue-job`; the
+  worker downloads the objects directly from Storage.
+- The service-role key remains server-side. The browser receives only
+  short-lived signed upload tokens.
+- Instant hosted cloning still uses the Vercel request path and therefore keeps
+  its smaller source-audio limit. Select worker mode for large reference sets.
+
+Supabase project/bucket file-size limits still apply to each object. If Storage
+rejects an otherwise valid large audio file, raise the bucket/project file-size
+limit or move worker object storage to an S3-compatible object store; vector
+databases and memory stores are not substitutes for binary audio storage.
