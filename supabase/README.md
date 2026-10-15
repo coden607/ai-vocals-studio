@@ -26,6 +26,8 @@ SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 SUPABASE_STORAGE_BUCKET=voiceovers
 ELEVENLABS_API_KEY=YOUR_ELEVENLABS_KEY
+# Recommended for worker uploads; if omitted, ELEVENLABS_API_KEY is used as the access secret.
+UPLOAD_ACCESS_TOKEN=YOUR_LONG_RANDOM_UPLOAD_SECRET
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` must stay server-side only. Do not expose it in the browser.
@@ -55,6 +57,14 @@ Supabase Storage using the TUS resumable protocol.
   worker downloads the objects directly from Storage.
 - The service-role key remains server-side. The browser receives only
   short-lived signed upload tokens.
+- Ticket creation and Supabase worker queue writes require the configured
+  `UPLOAD_ACCESS_TOKEN` (or, for backward compatibility, the matching
+  server-side `ELEVENLABS_API_KEY`). This blocks anonymous callers from
+  minting storage capabilities.
+- Tickets are minted one file at a time immediately before upload and each
+  upload session has per-file and aggregate byte quotas.
+- If a partial batch fails, the browser calls `/api/upload-abort` so staged
+  objects are removed instead of being left unclaimed.
 - Instant hosted cloning still uses the Vercel request path and therefore keeps
   its smaller source-audio limit. Select worker mode for large reference sets.
 
@@ -62,3 +72,11 @@ Supabase project/bucket file-size limits still apply to each object. If Storage
 rejects an otherwise valid large audio file, raise the bucket/project file-size
 limit or move worker object storage to an S3-compatible object store; vector
 databases and memory stores are not substitutes for binary audio storage.
+
+
+### Song replacement separation
+
+For `song_replace`, the worker always uses Demucs before voice conversion:
+full song -> Demucs vocals/instrumental -> convert the vocal -> remix over the
+instrumental. Clean voice-reference clips, already-isolated vocals, and
+instrumental-only beats are not separated again.
