@@ -86,17 +86,22 @@ class SupabaseClient:
         response = self.request(
             "GET",
             f"/storage/v1/object/{quote(self.bucket)}/{quote(object_path, safe='/')}",
+            stream=True,
         )
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(response.content)
+        with target.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
 
     def upload_object(self, object_path: str, source: Path, content_type: str = "audio/wav") -> str:
-        self.request(
-            "POST",
-            f"/storage/v1/object/{quote(self.bucket)}/{quote(object_path, safe='/')}",
-            headers={"Content-Type": content_type, "x-upsert": "true"},
-            data=source.read_bytes(),
-        )
+        with source.open("rb") as handle:
+            self.request(
+                "POST",
+                f"/storage/v1/object/{quote(self.bucket)}/{quote(object_path, safe='/')}",
+                headers={"Content-Type": content_type, "x-upsert": "true"},
+                data=handle,
+            )
         return f"{self.url}/storage/v1/object/public/{quote(self.bucket)}/{quote(object_path, safe='/')}"
 
 
