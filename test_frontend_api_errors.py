@@ -49,13 +49,13 @@ def test_frontend_handles_platform_text_errors_and_large_uploads():
     assert "status: \"failed\"" in ABORT_SOURCE
 
     # Large references do not get fully decoded in browser memory.
-    assert "MAX_BROWSER_DECODE_BYTES = 8 * 1024 * 1024" in SOURCE
+    assert "MAX_BROWSER_DECODE_BYTES = 2 * 1024 * 1024" in SOURCE
     assert "probeAudioDuration(file)" in SOURCE
     assert 'analysisMode: usedMetadataOnly ? "bounded_metadata" : "decoded"' in SOURCE
 
     # Queueing finalizes only paths reserved inside the authenticated upload session.
     assert "expectedPathSet" in QUEUE_SOURCE
-    assert "Authorized upload access key required to finalize this job" in QUEUE_SOURCE
+    assert "Authorized upload access key required for Supabase worker jobs" in QUEUE_SOURCE
     assert 'uploadMode: uploadSessionId ? "direct_resumable" : "server_inline"' in QUEUE_SOURCE
 
     # Full-song replacement is always separated with Demucs; clean refs bypass it.
