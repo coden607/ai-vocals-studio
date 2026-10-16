@@ -11,6 +11,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Gitleaks Scan
+        uses: zricethezav/gitleaks-action@v1.6.0
+        with:
+          config_path: .gitleaks.toml
+          exit_code: 1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

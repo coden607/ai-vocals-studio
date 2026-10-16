@@ -1,0 +1,66 @@
+# Gitleaks Configuration: Secret Scanning Rules for Twilio Removal
+title = "Twilio Removal Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "twilio-account-sid"
+description = "Twilio Account SID"
+regex = '''AC[a-f0-9]{32}'''
+tags = ["key", "Twilio"]
+
+[rules.allowlist]
+description = "Allow test fixtures and mock Twilio SIDs"
+paths = [
+    '''test_.*\.py''',
+    '''.*\.test\.(js|ts|mjs)''',
+    '''tests/''',
+    '''test/''',
+]
+regexes = [
+    '''^AC0{32}$''',
+    '''AC00000000000000000000000000000000''',
+]
+
+[[rules]]
+id = "twilio-auth-token"
+description = "Twilio Auth Token"
+regex = '''(?i)twilio[a-z0-9_ .\-,]{0,25}(?:=|:|:=|=>)[a-z0-9_ .\-,]{0,5}['"]([a-f0-9]{32})['"]'''
+tags = ["secret", "Twilio"]
+
+[rules.allowlist]
+description = "Allow test fixtures and dummy tokens"
+paths = [
+    '''test_.*\.py''',
+    '''.*\.test\.(js|ts|mjs)''',
+    '''tests/''',
+    '''test/''',
+]
+regexes = [
+    '''0{32}''',
+    '''mock_auth_token''',
+    '''test_auth_token''',
+]
+
+[[rules]]
+id = "twilio-api-key"
+description = "Twilio API Key Secret"
+regex = '''SK[a-f0-9]{32}'''
+tags = ["key", "Twilio"]
+
+[allowlist]
+description = "Global allowlist for tests and documentation"
+paths = [
+    '''tests/''',
+    '''test/''',
+    '''test_.*\.py''',
+    '''.*\.test\.(js|ts|mjs)''',
+    '''.*\.md''',
+]
+regexes = [
+    '''\+1607555\d{4}''',
+    '''\+15005550006''',
+    '''AC0{32}''',
+    '''0{32}''',
+]
