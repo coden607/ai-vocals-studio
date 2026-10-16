@@ -30,3 +30,14 @@ def test_neural_can_meet_studio():
     verdict = precision_verdict(identity=0.75, engine="XTTS v2", reference_duration_s=20, reference_quality=0.7, quality_target="studio", identity_backend="neural")
     assert verdict["meets_quality_target"] is True
     assert verdict["meets_near_precision"] is False
+
+
+if __name__ == "__main__":
+    import tempfile
+    import pathlib
+    with tempfile.TemporaryDirectory() as td:
+        test_same_clip_identity_is_high(pathlib.Path(td))
+    test_dsp_cannot_claim_studio()
+    test_neural_can_meet_studio()
+    print("All speaker identity contract tests passed successfully.")
+
