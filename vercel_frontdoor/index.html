@@ -68,6 +68,9 @@
       .capabilities { display: grid; gap: 6px; margin-top: 10px; }
       .capability { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 7px 0; }
       .capability:last-child { border-bottom: 0; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+      .toolbar button { width: auto; padding: 9px 12px; border-radius: 12px; }
+      .pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; background: #101411; }
       @media (max-width: 860px) { .hero, .grid, .row { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -189,8 +192,16 @@
             <input id="deleteVoice" name="deleteVoice" type="checkbox" checked>
             <label for="deleteVoice">Delete the temporary cloud voice after generation.</label>
           </div>
+          <div id="taskHint" class="small"></div>
+          <div id="fileSummary" class="small">No audio selected.</div>
+          <div class="toolbar">
+            <button id="saveDraft" type="button" class="secondary">Save draft</button>
+            <button id="restoreDraft" type="button" class="secondary">Restore draft</button>
+            <button id="clearDraft" type="button" class="secondary">Clear draft</button>
+          </div>
+          <div id="networkStatus" class="pill small" role="status" aria-live="polite">Checking network…</div>
           <button id="generateBtn" type="submit">Clone Voice + Generate Voice-Over</button>
-          <div id="status" class="status"></div>
+          <div id="status" class="status" role="status" aria-live="polite"></div>
         </form>
         <aside class="card result">
           <h2>Output</h2>
@@ -222,6 +233,71 @@
       const downloadVoice = document.getElementById("downloadVoice");
       const downloadMix = document.getElementById("downloadMix");
       let latestReferenceMetrics = null;
+      const DRAFT_KEY = "ai-vocals-studio:draft:v1";
+      function formatBytes(bytes) {
+        const value = Number(bytes || 0);
+        if (!Number.isFinite(value) || value <= 0) return "0 B";
+        const units = ["B", "KB", "MB", "GB"];
+        const power = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
+        return `${(value / (1024 ** power)).toFixed(power ? 1 : 0)} ${units[power]}`;
+      }
+      function updateFileSummary() {
+        const voices = [...document.getElementById("voiceFiles").files];
+        const target = document.getElementById("targetFile").files[0];
+        const bed = document.getElementById("bedFile").files[0];
+        const total = voices.reduce((sum, file) => sum + file.size, 0) + (target?.size || 0) + (bed?.size || 0);
+        document.getElementById("fileSummary").textContent =
+          `${voices.length} voice sample(s) · ${target ? "target selected" : "no target"} · ${bed ? "bed selected" : "no bed"} · ${formatBytes(total)} total`;
+      }
+      function draftPayload() {
+        return {
+          voiceName: document.getElementById("voiceName").value,
+          processingMode: document.getElementById("processingMode").value,
+          taskMode: document.getElementById("taskMode").value,
+          scriptText: document.getElementById("scriptText").value,
+          qualityTarget: document.getElementById("qualityTarget").value,
+          stability: document.getElementById("stability").value,
+          similarity: document.getElementById("similarity").value,
+          studioQuality: document.getElementById("studioQuality").checked,
+          deleteVoice: document.getElementById("deleteVoice").checked,
+        };
+      }
+      function saveDraft() {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draftPayload()));
+        setStatus("Draft saved locally. API keys, permission, and audio files are not stored.");
+      }
+      function restoreDraft() {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return setStatus("No saved draft found.", true);
+        try {
+          const draft = JSON.parse(raw);
+          for (const id of ["voiceName", "processingMode", "taskMode", "scriptText", "qualityTarget", "stability", "similarity"]) {
+            if (draft[id] != null) document.getElementById(id).value = draft[id];
+          }
+          for (const id of ["studioQuality", "deleteVoice"]) {
+            if (typeof draft[id] === "boolean") document.getElementById(id).checked = draft[id];
+          }
+          syncTaskUi();
+          setStatus("Draft restored. Re-select audio files and confirm permission.");
+        } catch {
+          setStatus("Saved draft is invalid; clear it and save a new one.", true);
+        }
+      }
+      function updateNetworkStatus() {
+        const el = document.getElementById("networkStatus");
+        const online = navigator.onLine;
+        el.textContent = online ? "Online · uploads available" : "Offline · uploads paused";
+        el.classList.toggle("error", !online);
+      }
+      function resetOutput() {
+        for (const audio of [voiceAudio, mixAudio]) {
+          if (audio.src?.startsWith("blob:")) URL.revokeObjectURL(audio.src);
+          audio.removeAttribute("src");
+          audio.hidden = true;
+        }
+        downloadVoice.hidden = true;
+        downloadMix.hidden = true;
+      }
       function setStatus(message, isError = false) {
         statusEl.textContent = message;
         statusEl.classList.toggle("error", isError);
@@ -646,6 +722,15 @@
         button.textContent = isTraining
           ? "Validate + Train RVC Model"
           : isVoiceover ? "Clone Voice + Generate Voice-Over" : "Clone Voice + Replace Target Vocal";
+        document.getElementById("taskHint").textContent = isTraining
+          ? "Training validates the reference set before launching RVC work."
+          : taskMode === "song_replace"
+            ? "Song replacement separates vocals with Demucs, converts the isolated vocal, then remixes."
+            : taskMode === "clip_convert"
+              ? "Clip conversion changes the vocal identity while preserving the source timing."
+              : processingMode.value === "worker"
+                ? "Worker mode handles large files through resumable Supabase uploads."
+                : "Instant mode is for small hosted voice-over requests.";
       }
       async function loadJobs() {
         const status = document.getElementById("supabaseStatus");
@@ -739,7 +824,7 @@
           return setStatus("Instant hosted cloning is limited to about 3 MB of source audio. Choose the Supabase worker mode for larger reference sets.", true);
         }
         button.disabled = true;
-        voiceAudio.hidden = true; mixAudio.hidden = true; downloadVoice.hidden = true; downloadMix.hidden = true;
+        resetOutput();
         let activeUploadSessionId = null;
         let activeUploadAccessKey = null;
         try {
@@ -832,12 +917,14 @@
       document.getElementById("songFilePicker").addEventListener("click", () => document.getElementById("targetFile").click());
       document.getElementById("targetFile").addEventListener("change", (event) => {
         const file = event.target.files && event.target.files[0];
-        document.getElementById("selectedSongFile").textContent = file ? `Selected song: ${file.name}` : "No song selected.";
+        document.getElementById("selectedSongFile").textContent = file ? `Selected song: ${file.name} · ${formatBytes(file.size)}` : "No song selected.";
+        updateFileSummary();
       });
       document.getElementById("voiceFilePicker").addEventListener("click", () => document.getElementById("voiceFiles").click());
       document.getElementById("voiceFiles").addEventListener("change", async (event) => {
         const selected = document.getElementById("selectedVoiceFiles");
-        selected.textContent = event.target.files.length ? `${event.target.files.length} file(s): ${[...event.target.files].map((file) => file.name).join(", ")}` : "No voice samples selected.";
+        selected.textContent = event.target.files.length ? `${event.target.files.length} file(s): ${[...event.target.files].map((file) => `${file.name} (${formatBytes(file.size)})`).join(", ")}` : "No voice samples selected.";
+        updateFileSummary();
         const files = [...event.target.files];
         if (!files.length) return renderReadiness(null);
         try {
@@ -850,10 +937,24 @@
           box.textContent = `Could not analyze audio: ${err.message || err}`;
         }
       });
+      document.getElementById("bedFile").addEventListener("change", updateFileSummary);
+      document.getElementById("saveDraft").addEventListener("click", saveDraft);
+      document.getElementById("restoreDraft").addEventListener("click", restoreDraft);
+      document.getElementById("clearDraft").addEventListener("click", () => {
+        localStorage.removeItem(DRAFT_KEY);
+        setStatus("Saved draft cleared.");
+      });
+      window.addEventListener("online", updateNetworkStatus);
+      window.addEventListener("offline", updateNetworkStatus);
+      form.addEventListener("keydown", (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") form.requestSubmit();
+      });
       document.getElementById("taskMode").addEventListener("change", syncTaskUi);
       document.getElementById("qualityTarget").addEventListener("change", syncTaskUi);
       document.getElementById("studioQuality").addEventListener("change", syncTaskUi);
       syncTaskUi();
+      updateFileSummary();
+      updateNetworkStatus();
       loadJobs();
     </script>
   </body>
