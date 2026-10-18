@@ -65,6 +65,10 @@
       .job { border: 1px solid var(--line); border-radius: 13px; padding: 10px 12px; background: #101411; }
       .job strong { display: block; }
       .job span { color: var(--muted); font-size: 12px; }
+      .job-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+      .job-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+      .job-actions button { width: auto; padding: 7px 9px; border-radius: 10px; }
+      .status-badge { border: 1px solid var(--line); border-radius: 999px; padding: 3px 7px; font-size: 11px; text-transform: uppercase; }
       .capabilities { display: grid; gap: 6px; margin-top: 10px; }
       .capability { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 7px 0; }
       .capability:last-child { border-bottom: 0; }
@@ -233,6 +237,18 @@
           </div>
           <p class="small">Hosted Vercel generation uses ElevenLabs IVC + TTS. Worker jobs use Supabase in production or local filesystem storage for local/self-hosted runs.</p>
           <h3>Recent jobs</h3>
+          <div class="toolbar">
+            <button id="refreshJobs" type="button" class="secondary">Refresh jobs</button>
+            <label class="pill"><input id="autoRefreshJobs" type="checkbox" checked> Auto refresh</label>
+            <select id="jobFilter" aria-label="Filter recent jobs">
+              <option value="all">All jobs</option>
+              <option value="queued">Queued</option>
+              <option value="processing">Processing</option>
+              <option value="complete">Complete</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+          <div id="jobMeta" class="small">No job refresh yet.</div>
           <div id="supabaseStatus" class="small">Checking storage...</div>
           <div id="storageHealth" class="small">Checking storage health...</div>
           <div id="capabilities" class="capabilities small">Checking engines...</div>
@@ -795,6 +811,22 @@
                 ? "Worker mode handles large files through resumable Supabase uploads."
                 : "Instant mode is for small hosted voice-over requests.";
       }
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[char]);
+      }
+      function jobStatus(job) {
+        return String(job?.status || "unknown").toLowerCase();
+      }
+      async function copyText(value, label) {
+        try {
+          await navigator.clipboard.writeText(String(value || ""));
+          setStatus(`${label} copied.`);
+        } catch {
+          setStatus(`Could not copy ${label.toLowerCase()}.`, true);
+        }
+      }
       async function loadJobs() {
         const status = document.getElementById("supabaseStatus");
         const healthEl = document.getElementById("storageHealth");
@@ -817,14 +849,23 @@
           const payload = await readJsonResponse(response, "Job history request");
           const providerText = payload.provider === "supabase" ? "Supabase persistence enabled." : "Local filesystem storage enabled.";
           status.textContent = payload.warning ? `${providerText} Job history warning: ${payload.warning}` : providerText;
-          jobsEl.innerHTML = (payload.jobs || []).map((job) => {
-            const link = job.output_url ? `<a class="link" href="${job.output_url}" target="_blank" rel="noreferrer">Open stored audio</a>` : "";
+          const allJobs = payload.jobs || [];
+          const filter = document.getElementById("jobFilter").value;
+          const visibleJobs = filter === "all" ? allJobs : allJobs.filter((job) => jobStatus(job) === filter);
+          document.getElementById("jobMeta").textContent =
+            `${visibleJobs.length} shown · ${allJobs.length} total · refreshed ${new Date().toLocaleTimeString()}`;
+          jobsEl.innerHTML = visibleJobs.map((job) => {
+            const id = escapeHtml(job.id || "");
+            const outputUrl = /^https?:\/\//.test(job.output_url || "") ? job.output_url : "";
+            const link = outputUrl ? `<a class="link" href="${escapeHtml(outputUrl)}" target="_blank" rel="noreferrer">Open stored audio</a>` : "";
             const report = job.report || {};
-            const stage = report.stage || report.quality_target || "queued";
+            const stage = escapeHtml(report.stage || report.quality_target || "queued");
             const model = report.model_url || report.model_object;
-            const modelLink = model && /^https?:\/\//.test(model) ? `<a class="link" href="${model}" target="_blank" rel="noreferrer">Open trained model</a>` : "";
-            return `<div class="job"><strong>${job.voice_name || "Voice-over"} · ${job.status}</strong><span>${new Date(job.created_at).toLocaleString()} · ${job.engine || "unknown"} · stage: ${stage}</span>${link}${modelLink}</div>`;
-          }).join("") || "<p class=\"small\">No jobs yet.</p>";
+            const modelLink = model && /^https?:\/\//.test(model) ? `<a class="link" href="${escapeHtml(model)}" target="_blank" rel="noreferrer">Open trained model</a>` : "";
+            const statusText = escapeHtml(jobStatus(job));
+            const actions = `<div class="job-actions"><button type="button" class="secondary copy-job-id" data-job-id="${id}">Copy job ID</button>${outputUrl ? `<button type="button" class="secondary copy-output-url" data-output-url="${escapeHtml(outputUrl)}">Copy output URL</button>` : ""}</div>`;
+            return `<div class="job"><div class="job-head"><strong>${escapeHtml(job.voice_name || "Voice-over")}</strong><span class="status-badge">${statusText}</span></div><span>${escapeHtml(new Date(job.created_at).toLocaleString())} · ${escapeHtml(job.engine || "unknown")} · stage: ${stage}</span>${link}${modelLink}${actions}</div>`;
+          }).join("") || "<p class=\"small\">No jobs match this filter.</p>";
         } catch (err) {
           status.textContent = `Could not load jobs: ${err.message || err}`;
         }
@@ -1032,6 +1073,20 @@
       window.addEventListener("offline", updateNetworkStatus);
       form.addEventListener("keydown", (event) => {
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") form.requestSubmit();
+      });
+      document.getElementById("refreshJobs").addEventListener("click", loadJobs);
+      document.getElementById("jobFilter").addEventListener("change", loadJobs);
+      document.getElementById("jobs").addEventListener("click", (event) => {
+        const idButton = event.target.closest(".copy-job-id");
+        if (idButton) return copyText(idButton.dataset.jobId, "Job ID");
+        const urlButton = event.target.closest(".copy-output-url");
+        if (urlButton) return copyText(urlButton.dataset.outputUrl, "Output URL");
+      });
+      setInterval(() => {
+        if (document.getElementById("autoRefreshJobs").checked && document.visibilityState === "visible" && navigator.onLine) loadJobs();
+      }, 15000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && document.getElementById("autoRefreshJobs").checked) loadJobs();
       });
       document.getElementById("taskMode").addEventListener("change", syncTaskUi);
       document.getElementById("qualityTarget").addEventListener("change", syncTaskUi);
