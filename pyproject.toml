@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-vocals-studio"
+version = "0.1.0"
+description = "AI powered vocal studio with voice cloning capabilities"
+readme = "README.md"
+requires-python = ">=3.9,<3.13"
+license = {text = "AGPL-3.0"}
+keywords = ["audio", "voice-cloning", "rvc", "yourtts", "qwen3", "coqui"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+]
+
+[project.dependencies]
+# Core runtime dependencies (CPU only)
+torch = "*"
+torchvision = "*"
+torchaudio = "*"
+
+[project.optional-dependencies]
+# Extras for each backend
+rvc = ["infer_rvc_python"]
+yourtts = ["git+https://github.com/nii-yamagishilab/YourTTS.git"]
+qwen3 = ["transformers==4.41.2", "huggingface_hub"]
+coqui = ["TTS==0.22.0"]
+# Optional GPU support (future)
+gpu = ["torch==2.3.0+cu121"]
