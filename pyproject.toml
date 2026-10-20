@@ -16,17 +16,20 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[project.dependencies]
 # Core runtime dependencies (CPU only)
-torch = "*"
-torchvision = "*"
-torchaudio = "*"
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+]
 
 [project.optional-dependencies]
 # Extras for each backend
-rvc = ["infer_rvc_python"]
-yourtts = ["git+https://github.com/nii-yamagishilab/YourTTS.git"]
-qwen3 = ["transformers==4.41.2", "huggingface_hub"]
-coqui = ["TTS==0.22.0"]
+# rvc optional backend disabled (requires faiss)
+yourtts = []
+qwen3 = ["transformers>=4.41.2,<5.0", "huggingface_hub"]
+coqui = ["coqui-tts"]
 # Optional GPU support (future)
 gpu = ["torch==2.3.0+cu121"]
+[tool.setuptools]
+packages = ["ai_vocals_studio"]
