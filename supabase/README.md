@@ -51,6 +51,9 @@ The browser requests short-lived signed upload tickets from
 Supabase Storage using the TUS resumable protocol.
 
 - Chunks are fixed at 6 MB to match Supabase's current resumable-upload guidance.
+- Each PATCH must acknowledge the exact end of its chunk. After a lost response,
+  HEAD may confirm partial or complete receipt within that chunk; missing,
+  malformed, backward, and oversized offsets never count as progress.
 - The browser uses the direct `<project-ref>.storage.supabase.co` hostname when
   the normal Supabase project URL allows it to be derived.
 - Only storage object paths and metadata are sent to `/api/queue-job`; the
@@ -80,3 +83,12 @@ For `song_replace`, the worker always uses Demucs before voice conversion:
 full song -> Demucs vocals/instrumental -> convert the vocal -> remix over the
 instrumental. Clean voice-reference clips, already-isolated vocals, and
 instrumental-only beats are not separated again.
+
+### Offline upload regression checks
+
+Run `node --test test_upload_contract.cjs` with Node 20 or newer. These checks
+execute the browser upload and queue authorization functions with isolated mocks;
+they cover retries, invalid offsets, unauthorized side effects, inline script
+syntax, and the browser smoke error gate. No credentials or live uploads are used.
+The Full Sanity workflow runs these checks before browser/Lighthouse setup.
+Passing them does not verify a deployed Supabase upload end to end.

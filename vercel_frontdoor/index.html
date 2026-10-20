@@ -275,7 +275,19 @@
         return new Promise((resolve) => setTimeout(resolve, ms));
       }
 
-      async function getTusOffset(uploadUrl, ticket) {
+      function readTusOffset(response, minOffset, maxOffset) {
+        const raw = response.headers.get("Upload-Offset");
+        if (raw === null || !/^[0-9]+$/.test(raw)) {
+          throw new Error("Upload server returned an invalid offset.");
+        }
+        const offset = Number(raw);
+        if (!Number.isSafeInteger(offset) || offset < minOffset || offset > maxOffset) {
+          throw new Error("Upload server returned an out-of-range offset.");
+        }
+        return offset;
+      }
+
+      async function getTusOffset(uploadUrl, ticket, minOffset, maxOffset) {
         const response = await fetch(uploadUrl, {
           method: "HEAD",
           headers: {
@@ -284,9 +296,7 @@
           },
         });
         if (!response.ok) throw new Error(`Could not resume upload (${response.status}).`);
-        const offset = Number(response.headers.get("Upload-Offset"));
-        if (!Number.isFinite(offset) || offset < 0) throw new Error("Upload server returned an invalid resume offset.");
-        return offset;
+        return readTusOffset(response, minOffset, maxOffset);
       }
 
       async function createTusUpload(file, ticket, uploadConfig) {
@@ -344,14 +354,16 @@
                 const detail = (await response.text()).replace(/\s+/g, " ").trim().slice(0, 180);
                 throw new Error(`Upload chunk failed (${response.status}): ${detail || response.statusText}`);
               }
-              const serverOffset = Number(response.headers.get("Upload-Offset"));
-              offset = Number.isFinite(serverOffset) && serverOffset > chunkStart ? serverOffset : chunkStart + chunk.size;
+              // A successful PATCH must acknowledge exactly the submitted bytes.
+              // Never infer progress from a missing or malformed server header.
+              const chunkEnd = chunkStart + chunk.size;
+              offset = readTusOffset(response, chunkEnd, chunkEnd);
               uploaded = true;
               onProgress?.(Math.min(offset, file.size), file.size);
             } catch (error) {
               lastError = error;
               try {
-                const recoveredOffset = await getTusOffset(uploadUrl, ticket);
+                const recoveredOffset = await getTusOffset(uploadUrl, ticket, chunkStart, chunkStart + chunk.size);
                 if (recoveredOffset !== chunkStart) {
                   // The server may already have committed this PATCH even when its
                   // response was lost. Restart the outer loop so the next Blob is
