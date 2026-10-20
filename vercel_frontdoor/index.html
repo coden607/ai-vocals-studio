@@ -71,6 +71,9 @@
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
       .toolbar button { width: auto; padding: 9px 12px; border-radius: 12px; }
       .pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; background: #101411; }
+      .dropzone { border: 1px dashed var(--line); border-radius: 14px; padding: 10px; transition: border-color .15s ease, background .15s ease; }
+      .dropzone.dragging { border-color: var(--accent); background: rgba(25, 230, 140, 0.08); }
+      .preview-audio { width: 100%; margin-top: 8px; }
       @media (max-width: 860px) { .hero, .grid, .row { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -123,21 +126,32 @@
           </div>
           <div class="field">
             <label for="voiceFiles">Voice samples</label>
-            <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif" multiple required>
-            <button id="voiceFilePicker" type="button" class="secondary">Choose Voice Audio</button>
-            <div id="selectedVoiceFiles" class="small">No voice samples selected.</div>
+            <div id="voiceDropzone" class="dropzone">
+              <input id="voiceFiles" name="voiceFiles" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif" multiple required>
+              <button id="voiceFilePicker" type="button" class="secondary">Choose Voice Audio</button>
+              <button id="clearVoiceFiles" type="button" class="secondary">Clear Voice Audio</button>
+              <div id="selectedVoiceFiles" class="small">No voice samples selected.</div>
+              <audio id="voicePreview" class="preview-audio" controls hidden></audio>
+              <div class="small">You can also drag authorized voice audio here.</div>
+            </div>
             <p class="small">Use clean single-speaker WAV/FLAC. Studio-match mode requires at least 20 seconds; 60+ seconds is better.</p>
             <div id="readiness" class="readiness small">Upload samples to check clone readiness.</div>
           </div>
           <div class="field" id="scriptField">
             <label for="scriptText">Voice-over text</label>
             <textarea id="scriptText" name="scriptText" required placeholder="Type what the cloned voice should say..."></textarea>
+            <div id="scriptCount" class="small">0 characters</div>
           </div>
           <div class="field" id="targetField" hidden>
             <label for="targetFile">Song/audio to replace or convert</label>
-            <input id="targetFile" name="targetFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif">
-            <button id="songFilePicker" type="button" class="secondary">Choose Song / Audio</button>
-            <div id="selectedSongFile" class="small">Select a song/audio file above.</div>
+            <div id="targetDropzone" class="dropzone">
+              <input id="targetFile" name="targetFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.aiff,.aif">
+              <button id="songFilePicker" type="button" class="secondary">Choose Song / Audio</button>
+              <button id="clearTargetFile" type="button" class="secondary">Clear Target Audio</button>
+              <div id="selectedSongFile" class="small">Select a song/audio file above.</div>
+              <audio id="targetPreview" class="preview-audio" controls hidden></audio>
+              <div class="small">You can also drag one song or clip here.</div>
+            </div>
             <p class="small">For songs, upload audio with a vocal to replace. For beats/instrumentals with no vocal, use text voice-over and the optional browser mix bed below.</p>
           </div>
           <div class="field" id="separationField" hidden>
@@ -153,6 +167,7 @@
           <div class="field" id="bedField">
             <label for="bedFile">Optional beat/song bed for browser mix</label>
             <input id="bedFile" name="bedFile" type="file" accept="audio/*">
+            <button id="clearBedFile" type="button" class="secondary">Clear Mix Bed</button>
           </div>
           <div class="row">
             <div class="field">
@@ -193,6 +208,7 @@
             <label for="deleteVoice">Delete the temporary cloud voice after generation.</label>
           </div>
           <div id="taskHint" class="small"></div>
+          <div id="draftState" class="small">Draft unchanged.</div>
           <div id="fileSummary" class="small">No audio selected.</div>
           <div class="toolbar">
             <button id="saveDraft" type="button" class="secondary">Save draft</button>
@@ -264,6 +280,7 @@
       }
       function saveDraft() {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(draftPayload()));
+        document.getElementById("draftState").textContent = "Draft saved locally.";
         setStatus("Draft saved locally. API keys, permission, and audio files are not stored.");
       }
       function restoreDraft() {
@@ -278,6 +295,8 @@
             if (typeof draft[id] === "boolean") document.getElementById(id).checked = draft[id];
           }
           syncTaskUi();
+          updateScriptCount();
+          document.getElementById("draftState").textContent = "Draft restored.";
           setStatus("Draft restored. Re-select audio files and confirm permission.");
         } catch {
           setStatus("Saved draft is invalid; clear it and save a new one.", true);
@@ -288,6 +307,50 @@
         const online = navigator.onLine;
         el.textContent = online ? "Online · uploads available" : "Offline · uploads paused";
         el.classList.toggle("error", !online);
+      }
+      function setPreview(audioId, file) {
+        const audio = document.getElementById(audioId);
+        if (audio.src?.startsWith("blob:")) URL.revokeObjectURL(audio.src);
+        if (!file) {
+          audio.removeAttribute("src");
+          audio.hidden = true;
+          return;
+        }
+        audio.src = URL.createObjectURL(file);
+        audio.hidden = false;
+      }
+      function isAudioFile(file) {
+        return !!file && (file.type?.startsWith("audio/") || /\.(wav|mp3|m4a|aac|flac|ogg|aiff?|opus)$/i.test(file.name || ""));
+      }
+      function assignFiles(input, files) {
+        const transfer = new DataTransfer();
+        for (const file of files) transfer.items.add(file);
+        input.files = transfer.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      function bindDropzone(zoneId, inputId, multiple) {
+        const zone = document.getElementById(zoneId);
+        const input = document.getElementById(inputId);
+        for (const type of ["dragenter", "dragover"]) zone.addEventListener(type, (event) => {
+          event.preventDefault();
+          zone.classList.add("dragging");
+        });
+        for (const type of ["dragleave", "drop"]) zone.addEventListener(type, (event) => {
+          event.preventDefault();
+          zone.classList.remove("dragging");
+        });
+        zone.addEventListener("drop", (event) => {
+          const files = [...(event.dataTransfer?.files || [])].filter(isAudioFile);
+          if (!files.length) return setStatus("Drop audio files only.", true);
+          assignFiles(input, multiple ? files.slice(0, 6) : files.slice(0, 1));
+        });
+      }
+      function updateScriptCount() {
+        const value = document.getElementById("scriptText").value;
+        document.getElementById("scriptCount").textContent = `${value.length} character${value.length === 1 ? "" : "s"}`;
+      }
+      function markDraftDirty() {
+        document.getElementById("draftState").textContent = "Draft changed since last save.";
       }
       function resetOutput() {
         for (const audio of [voiceAudio, mixAudio]) {
@@ -917,15 +980,21 @@
       document.getElementById("songFilePicker").addEventListener("click", () => document.getElementById("targetFile").click());
       document.getElementById("targetFile").addEventListener("change", (event) => {
         const file = event.target.files && event.target.files[0];
+        if (file && !isAudioFile(file)) { assignFiles(event.target, []); return setStatus("Target must be an audio file.", true); }
         document.getElementById("selectedSongFile").textContent = file ? `Selected song: ${file.name} · ${formatBytes(file.size)}` : "No song selected.";
+        setPreview("targetPreview", file);
         updateFileSummary();
       });
       document.getElementById("voiceFilePicker").addEventListener("click", () => document.getElementById("voiceFiles").click());
       document.getElementById("voiceFiles").addEventListener("change", async (event) => {
         const selected = document.getElementById("selectedVoiceFiles");
-        selected.textContent = event.target.files.length ? `${event.target.files.length} file(s): ${[...event.target.files].map((file) => `${file.name} (${formatBytes(file.size)})`).join(", ")}` : "No voice samples selected.";
-        updateFileSummary();
         const files = [...event.target.files];
+        const invalid = files.find((file) => !isAudioFile(file));
+        if (invalid) { assignFiles(event.target, []); return setStatus(`${invalid.name} is not recognized as audio.`, true); }
+        if (files.length > 6) { assignFiles(event.target, files.slice(0, 6)); return setStatus("Voice uploads are limited to 6 files per job; the first 6 were kept.", true); }
+        selected.textContent = files.length ? `${files.length} file(s): ${files.map((file) => `${file.name} (${formatBytes(file.size)})`).join(", ")}` : "No voice samples selected.";
+        setPreview("voicePreview", files[0]);
+        updateFileSummary();
         if (!files.length) return renderReadiness(null);
         try {
           latestReferenceMetrics = await analyzeReferenceFiles(files);
@@ -938,6 +1007,21 @@
         }
       });
       document.getElementById("bedFile").addEventListener("change", updateFileSummary);
+      document.getElementById("clearVoiceFiles").addEventListener("click", () => assignFiles(document.getElementById("voiceFiles"), []));
+      document.getElementById("clearTargetFile").addEventListener("click", () => assignFiles(document.getElementById("targetFile"), []));
+      document.getElementById("clearBedFile").addEventListener("click", () => {
+        document.getElementById("bedFile").value = "";
+        updateFileSummary();
+      });
+      bindDropzone("voiceDropzone", "voiceFiles", true);
+      bindDropzone("targetDropzone", "targetFile", false);
+      document.getElementById("scriptText").addEventListener("input", () => {
+        updateScriptCount();
+        markDraftDirty();
+      });
+      for (const id of ["voiceName", "processingMode", "taskMode", "qualityTarget", "stability", "similarity", "studioQuality", "deleteVoice"]) {
+        document.getElementById(id).addEventListener("change", markDraftDirty);
+      }
       document.getElementById("saveDraft").addEventListener("click", saveDraft);
       document.getElementById("restoreDraft").addEventListener("click", restoreDraft);
       document.getElementById("clearDraft").addEventListener("click", () => {
@@ -954,6 +1038,7 @@
       document.getElementById("studioQuality").addEventListener("change", syncTaskUi);
       syncTaskUi();
       updateFileSummary();
+      updateScriptCount();
       updateNetworkStatus();
       loadJobs();
     </script>
