@@ -8,6 +8,7 @@ from pathlib import Path
 
 from song_converter import change_song, combine_tracks, convert_vocals, separate_vocals
 from verse_voices import distinguish_verse_voices
+from voice_beat_match import rank_matrix, score_voice_beat, write_match_report
 
 
 def _progress(message: str, percent: int) -> None:
@@ -37,6 +38,11 @@ def main() -> int:
                      help="require Demucs + a trained RVC model; disable DSP/center fallbacks")
     rep.add_argument("--i-have-permission", action="store_true", required=True,
                      help="confirm permission to use the target voice")
+
+    match = sub.add_parser("match", help="Rank voices for beats and beats for voices")
+    match.add_argument("--profile", action="append", required=True, help="voice profile JSON; repeat for multiple voices")
+    match.add_argument("--beat", action="append", required=True, help="beat/instrumental audio; repeat for multiple beats")
+    match.add_argument("--output", default="", help="optional JSON report path")
 
     render = sub.add_parser("render", help="Separate, label verse voices, clone the vocal, write alone and over-beat")
     render.add_argument("song")
@@ -82,6 +88,7 @@ def main() -> int:
         if not vocals or not instrumental:
             raise SystemExit("separation failed")
         verses = distinguish_verse_voices(vocals, out)
+        voice_beat_fit = score_voice_beat(profile, instrumental)
         cloned = out / "cloned_vocal_alone.wav"
         ok, msg = convert_vocals(vocals, profile, cloned, out, _progress)
         if not ok:
@@ -94,6 +101,7 @@ def main() -> int:
             "beat": instrumental,
             "verse_voices": verses["voices"],
             "turns": verses["turns"],
+            "voice_beat_fit": voice_beat_fit,
             "cloned_vocal_alone": str(cloned),
             "cloned_vocal_over_beat": str(over),
             "conversion": msg,
