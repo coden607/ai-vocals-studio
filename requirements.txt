@@ -22,7 +22,7 @@ qwen-tts>=0.1.1
 
 # ElevenLabs — best-in-class voice cloning (primary engine, requires API key)
 # Get key at elevenlabs.io → Profile → API Keys ($5/mo Starter plan minimum)
-elevenlabs>=2.71.0
+elevenlabs>=2.73.1
 
 # XTTS v2 and RVC are installed through install_voice_engines.sh.
 # They currently require a Python 3.10/3.11 sidecar; this main app venv is
