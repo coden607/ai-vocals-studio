@@ -138,7 +138,7 @@ def convert_target_audio(
         plan = choose_best_plan(profile=profile, mode=plan_mode, target_has_voice=True)
         print(f"[ok] selected engine plan: {plan['engine']} ({plan['confidence']}% confidence)")
         # Songs always follow separate -> convert isolated vocal -> remix over
-        # the untouched separated instrumental. Studio/Pro never permit a
+        # an instrumental adapted to the unchanged clone. Studio/Pro never permit a
         # center-channel or DSP-only shortcut.
         out, steps = change_song(
             target_audio,

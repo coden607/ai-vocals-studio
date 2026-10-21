@@ -331,3 +331,47 @@ python cpu_voice_bootstrap.py /path/to/pacaveli-audio \
 ```
 
 If the references are full songs, use `--source-type song`; the pipeline separates the vocal before profiling. This creates `models/voices/Pacaveli/voice_profile.json` and `reference.wav` for CPU DSP conversion and reference-based TTS. It deliberately does not label that profile as an RVC checkpoint. A trained RVC model remains the neural singing/rap conversion upgrade.
+
+### Keep the clone intact and adapt the beat
+
+Song replacement and rendering now use the completed cloned vocal as the master.
+The mixer does not resample, trim, stretch, pitch-shift, normalize, or polish that
+vocal. It resamples only the instrumental, conforms its duration with pitch-preserving
+stretching when needed, and lowers the beat around vocal activity and available headroom.
+The output retains the vocal's sample rate and every frame. Mono stems are duplicated
+when mixed with stereo; original input files remain unchanged.
+
+For an already cloned vocal and an instrumental that starts at the same point:
+
+```bash
+python song_pipeline_cli.py mix \
+  --vocals cloned_vocal.wav --beat instrumental.wav --output mix.wav
+```
+
+This writes `mix.wav`, `mix_adapted_beat.wav`, and `mix.mix.json`. The report records
+the original vocal file hash, beat stretch rate, gain, sample rate, and frame count.
+Both audio exports are floating-point WAV; the original vocal stem remains the
+lossless standalone vocal. Subtracting the adapted beat from the mix recovers the
+decoded vocal to float32 rounding precision.
+
+Limits: this conforms an existing beat, not a newly generated composition. It assumes
+a shared start and does not infer downbeats, musical key, or variable-tempo phrasing.
+Beat duration must be 0.8–1.25 times vocal duration when stretching is required.
+Larger differences, silent/corrupt stems, missing stretch support, and vocals with
+peaks at or above 0.999 fail with an actionable error. A nearly full-scale vocal can
+force a very quiet beat; provide a clone with headroom for a louder accompaniment.
+Nonzero `vocals_gain_db` is rejected in protected mode: adjust the beat instead.
+
+`change_song` defaults to lossless WAV delivery and skips source-envelope vocal
+polish. Protected mode ignores `source_matched_export=True` to avoid a lossy delivery
+copy. Python callers can explicitly request the old behavior with
+`preserve_vocals=False` (and `source_matched_export=True` if desired).
+
+Validate without models, credentials, or network calls:
+
+```bash
+python -m pytest -q test_vocal_led_mix.py test_song_pipeline_production.py test_numpy_fallbacks.py
+```
+
+Synthetic tests establish sample preservation and beat-only transforms. They do not
+establish neural clone quality or musical quality on real songs; audition those separately.
