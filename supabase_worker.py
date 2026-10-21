@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -172,6 +173,21 @@ class LocalQueueClient:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
         return f"/api/local-object?path={quote(object_path, safe='')}"
+
+
+def _heartbeat_job(
+    client: SupabaseClient | LocalQueueClient,
+    job_id: str,
+    stop_event: threading.Event,
+    interval_s: float = 60.0,
+) -> None:
+    """Refresh a running job's updated_at while long processing is healthy."""
+    interval = max(5.0, float(interval_s))
+    while not stop_event.wait(interval):
+        try:
+            client.update_job(job_id, {"status": "running"})
+        except Exception as exc:
+            print(f"Heartbeat warning for job {job_id}: {exc}")
 
 
 def _content_type(path: Path) -> str:
@@ -408,12 +424,23 @@ def main() -> int:
             time.sleep(max(1.0, args.poll_seconds))
             continue
         print(f"Processing job {job['id']}...")
+        heartbeat_stop = threading.Event()
+        heartbeat_thread = threading.Thread(
+            target=_heartbeat_job,
+            args=(client, str(job["id"]), heartbeat_stop),
+            daemon=True,
+            name=f"job-heartbeat-{str(job['id'])[:8]}",
+        )
+        heartbeat_thread.start()
         try:
             process_job(client, job, work_root)
             print(f"Completed job {job['id']}.")
         except Exception as exc:
             client.update_job(str(job["id"]), {"status": "failed", "error": str(exc)})
             print(f"Failed job {job['id']}: {exc}")
+        finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2.0)
         if args.once:
             return 0
 
