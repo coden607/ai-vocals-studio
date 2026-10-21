@@ -9,6 +9,7 @@ from pathlib import Path
 from song_converter import change_song, combine_tracks, convert_vocals, separate_vocals
 from verse_voices import distinguish_verse_voices
 from voice_beat_match import rank_matrix, score_voice_beat, write_match_report
+from multi_voice_render import load_profile_map, render_multi_speaker_song
 
 
 def _progress(message: str, percent: int) -> None:
@@ -52,12 +53,36 @@ def main() -> int:
     render.add_argument("--vocals-gain-db", type=float, default=0.0)
     render.add_argument("--i-have-permission", action="store_true", required=True)
 
+    multi = sub.add_parser("render-multi", help="Route detected song speakers to separate authorized voice profiles")
+    multi.add_argument("song")
+    multi.add_argument("--profile-map", action="append", required=True,
+                       help="repeat voice_XX=/path/profile.json for every detected speaker")
+    multi.add_argument("--output-dir", default="output/rendered-multi")
+    multi.add_argument("--separation", choices=["auto", "demucs", "center"], default="demucs")
+    multi.add_argument("--require-neural", action="store_true",
+                       help="require Demucs plus neural voice conversion for every routed speaker")
+    multi.add_argument("--i-have-permission", action="store_true", required=True)
+
     mix = sub.add_parser("mix", help="Preserve an existing cloned vocal; adapt only its beat")
     mix.add_argument("--vocals", required=True, help="completed cloned vocal WAV")
     mix.add_argument("--beat", required=True, help="aligned instrumental audio")
     mix.add_argument("--output", required=True, help="lossless output WAV")
 
     args = parser.parse_args()
+
+    if args.command == "render-multi":
+        if not args.i_have_permission:
+            raise SystemExit("permission confirmation is required")
+        report = render_multi_speaker_song(
+            args.song,
+            load_profile_map(args.profile_map),
+            args.output_dir,
+            separation=args.separation,
+            require_neural=args.require_neural,
+            progress_cb=_progress,
+        )
+        print(json.dumps(report, indent=2))
+        return 0
 
     if args.command == "match":
         profiles = [json.loads(Path(path).read_text(encoding="utf-8")) for path in args.profile]
