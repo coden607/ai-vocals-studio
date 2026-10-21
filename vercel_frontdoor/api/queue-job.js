@@ -1,4 +1,4 @@
-import { createJob, getJob, storageConfig, updateJob, uploadObject } from "./_supabase.js";
+import { createJob, getJob, objectMetadata, storageConfig, updateJob, uploadObject } from "./_supabase.js";
 import { authenticateUploadRequest } from "./_upload-auth.js";
 import { randomUUID } from "node:crypto";
 
@@ -57,6 +57,25 @@ function referencedFile(file, role, uploadSessionId) {
 function expectedPathSet(job) {
   const expected = Array.isArray(job?.report?.expectedUploads) ? job.report.expectedUploads : [];
   return new Set(expected.map((item) => String(item?.path || "")).filter(Boolean));
+}
+
+async function verifyReferencedObject(file) {
+  const declaredSize = Number(file?.size || 0);
+  if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0) {
+    throw new Error("Referenced upload has an invalid declared size.");
+  }
+  let metadata;
+  try {
+    metadata = await objectMetadata(file.path);
+  } catch (error) {
+    throw new Error(`Referenced upload is missing or unreadable: ${error.message || String(error)}`);
+  }
+  if (!metadata?.exists) throw new Error("Referenced upload does not exist.");
+  if (metadata.size == null) throw new Error("Storage did not report the uploaded object size.");
+  if (Number(metadata.size) !== declaredSize) {
+    throw new Error(`Uploaded object size mismatch: expected ${declaredSize} bytes, storage has ${metadata.size} bytes.`);
+  }
+  return metadata;
 }
 
 export default async function handler(req, res) {
@@ -148,6 +167,7 @@ export default async function handler(req, res) {
         if (!referenced || !expectedPaths?.has(referenced.path)) {
           return sendJson(res, 400, { ok: false, error: "Invalid or unreserved queued voice object path." });
         }
+        await verifyReferencedObject(referenced);
         storedFiles.push(referenced);
         continue;
       }
@@ -169,6 +189,7 @@ export default async function handler(req, res) {
         if (!storedTarget || !expectedPaths?.has(storedTarget.path)) {
           return sendJson(res, 400, { ok: false, error: "Invalid or unreserved queued target object path." });
         }
+        await verifyReferencedObject(storedTarget);
       } else {
         const safeName = cleanName(target.name || "target-audio.wav").replace(/\s+/g, "_");
         const path = `${jobPrefix}/target/${Date.now()}-${safeName}`;
