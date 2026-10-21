@@ -180,6 +180,23 @@ export async function uploadObject(objectPath, buffer, contentType = "applicatio
   return `${cfg.url}/storage/v1/object/public/${encodeURIComponent(cfg.bucket)}/${objectPath}`;
 }
 
+export async function objectMetadata(objectPath) {
+  const normalized = String(objectPath || "").replace(/^\/+/, "");
+  if (!normalized) throw new Error("Object path is required.");
+  const cfg = supabaseConfig();
+  if (!cfg.enabled) {
+    const root = await ensureLocalRoot();
+    const target = pathModuleSafe(pathModule.join(root, "objects"), normalized);
+    const stat = await fs.stat(target);
+    return { exists: stat.isFile(), size: Number(stat.size || 0) };
+  }
+  const objectUrl = `/storage/v1/object/authenticated/${encodeURIComponent(cfg.bucket)}/${normalized}`;
+  const response = await supabaseRequest(objectUrl, { method: "HEAD" });
+  const rawLength = response.headers.get("content-length");
+  const size = rawLength != null && /^\d+$/.test(rawLength) ? Number(rawLength) : null;
+  return { exists: true, size };
+}
+
 export async function deleteObjects(objectPaths) {
   const paths = [...new Set((objectPaths || []).map((value) => String(value || "").replace(/^\/+/, "")).filter(Boolean))];
   if (!paths.length) return;
