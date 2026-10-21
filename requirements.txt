@@ -15,7 +15,7 @@ demucs>=4.1.0
 
 # For cloud training (optional but recommended)
 kaggle>=2.2.4
-requests>=2.28.0
+requests>=2.34.2
 
 # Qwen3-TTS rapid reference voice cloning (web app advanced engine)
 qwen-tts>=0.1.1
