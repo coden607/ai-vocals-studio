@@ -11,7 +11,7 @@ librosa>=0.10.0
 Pillow>=9.0.0
 streamlit>=1.48.0
 pyworld>=0.3.6
-demucs>=4.0.0
+demucs>=4.1.0
 
 # For cloud training (optional but recommended)
 kaggle>=2.2.4
