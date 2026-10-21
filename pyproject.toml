@@ -23,13 +23,7 @@ dependencies = [
     "torchaudio",
 ]
 
-[project.optional-dependencies]
-# Extras for each backend
-# rvc optional backend disabled (requires faiss)
-yourtts = []
-qwen3 = ["transformers>=4.41.2,<5.0", "huggingface_hub"]
-coqui = ["coqui-tts"]
-# Optional GPU support (future)
-gpu = ["torch==2.3.0+cu121"]
+[project.optional-dependencies]# Web UI extra
+webui = ["fastapi", "uvicorn[standard]"]
 [tool.setuptools]
 packages = ["ai_vocals_studio"]
