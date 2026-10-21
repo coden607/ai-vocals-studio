@@ -103,6 +103,6 @@ def test_combine_tracks_resamples_mismatched_rates(no_librosa, tmp_path):
     sf.write(i, _tone(110.0, sr=44100), 44100)
     sc.combine_tracks(v, i, out)
     mixed, out_sr = sf.read(out, dtype="float32")
-    assert out_sr == 44100
-    assert mixed.shape[0] == int(0.5 * 44100)
+    assert out_sr == SR
+    assert mixed.shape[0] == int(0.5 * SR)
     assert np.max(np.abs(mixed)) <= 1.0

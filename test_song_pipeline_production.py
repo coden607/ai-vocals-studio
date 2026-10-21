@@ -18,7 +18,7 @@ def test_combine_tracks_resamples_and_preserves_instrumental_length(tmp_path):
     _tone(vocals, 22050, 0.5, 220)
     _tone(inst, 44100, 1.0, 110)
 
-    sc.combine_tracks(vocals, inst, out)
+    sc.combine_tracks(vocals, inst, out, preserve_vocals=False)
 
     mixed, sr = sf.read(out, dtype="float32")
     assert sr == 44100
@@ -145,7 +145,7 @@ def test_polish_converted_vocals_preserves_length_and_peak(tmp_path):
     assert second > first * 2.0
 
 
-def test_change_song_remixes_polished_vocal_not_raw_conversion(monkeypatch, tmp_path):
+def test_change_song_preserves_raw_clone_instead_of_polishing(monkeypatch, tmp_path):
     source = tmp_path / "song.wav"
     vocals = tmp_path / "isolated_vocals.wav"
     inst = tmp_path / "instrumental.wav"
@@ -182,6 +182,7 @@ def test_change_song_remixes_polished_vocal_not_raw_conversion(monkeypatch, tmp_
     )
 
     assert Path(out).exists()
-    assert seen["vocals"] == "polished_vocals.wav"
+    assert seen["vocals"] == "converted_vocals.wav"
     assert seen["instrumental"] == "instrumental.wav"
-    assert "vocal_polish" in steps
+    assert "vocal_polish" not in steps
+    assert "vocal_preservation" in steps

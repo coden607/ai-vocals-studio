@@ -46,7 +46,16 @@ def main() -> int:
     render.add_argument("--vocals-gain-db", type=float, default=0.0)
     render.add_argument("--i-have-permission", action="store_true", required=True)
 
+    mix = sub.add_parser("mix", help="Preserve an existing cloned vocal; adapt only its beat")
+    mix.add_argument("--vocals", required=True, help="completed cloned vocal WAV")
+    mix.add_argument("--beat", required=True, help="aligned instrumental audio")
+    mix.add_argument("--output", required=True, help="lossless output WAV")
+
     args = parser.parse_args()
+    if args.command == "mix":
+        output = combine_tracks(args.vocals, args.beat, args.output)
+        print(json.dumps({"output": output, "mix_report": str(Path(output).with_suffix(".mix.json"))}, indent=2))
+        return 0
 
     if args.command == "separate":
         out = Path(args.output_dir)

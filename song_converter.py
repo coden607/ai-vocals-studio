@@ -669,14 +669,112 @@ def polish_converted_vocals(
 # ─────────────────────────────────────────────────────────────────
 #  Step 3 — combine converted vocals + instrumental
 # ─────────────────────────────────────────────────────────────────
+def mix_around_vocal(
+    vocals_path: str | Path,
+    instrumental_path: str | Path,
+    out_path: str | Path,
+) -> str:
+    """Conform only the beat; preserve the decoded vocal samples and clock.
+
+    Duration conforming assumes the stems start together. It is not automatic
+    downbeat/key inference. Large mismatches require a better matched beat.
+    """
+    import hashlib
+
+    vocal_path, beat_path, output = map(Path, (vocals_path, instrumental_path, out_path))
+    beat_output = output.with_name(output.stem + "_adapted_beat.wav")
+    report_output = output.with_suffix(".mix.json")
+    sources = {vocal_path.resolve(), beat_path.resolve()}
+    if any(path.resolve() in sources for path in (output, beat_output, report_output)):
+        raise ValueError("Mix outputs must not overwrite either input stem")
+    if output.suffix.lower() != ".wav":
+        raise ValueError("Protected mixes require a lossless .wav output")
+    v, sr = sf.read(str(vocal_path), dtype="float32", always_2d=True)
+    beat, bsr = sf.read(str(beat_path), dtype="float32", always_2d=True)
+    for label, data in (("Vocal", v), ("Beat", beat)):
+        if not data.size or data.shape[1] not in (1, 2) or not np.isfinite(data).all():
+            raise ValueError(f"{label} must be non-empty, finite mono/stereo audio")
+        if np.max(np.abs(data)) < 1e-8:
+            raise ValueError(f"{label} is silent")
+    vocal_peak = float(np.max(np.abs(v)))
+    if vocal_peak >= 0.999:
+        raise ValueError("Vocal has no safe headroom; provide an unclipped clone below full scale")
+    if sr != bsr:
+        beat = np.stack([_resample(beat[:, ch], bsr, sr)
+                         for ch in range(beat.shape[1])], axis=1)
+    frames = len(v)
+    rate = len(beat) / frames
+    # Tiny codec/resampling tails do not justify a phase-vocoder transform.
+    stretched = abs(len(beat) - frames) > max(1, round(sr * 0.02))
+    if stretched:
+        if not 0.8 <= rate <= 1.25:
+            raise ValueError("Beat duration differs too much from the clone; select or edit a beat to 0.8–1.25 times the vocal duration")
+        if not HAS_LIBROSA:
+            raise RuntimeError("librosa is required to stretch the beat while preserving its pitch")
+        # One multichannel transform preserves the beat's shared time grid.
+        beat = librosa.effects.time_stretch(beat.T, rate=rate).T
+    beat = beat[:frames]
+    if len(beat) < frames:
+        beat = np.pad(beat, ((0, frames - len(beat)), (0, 0)))
+    channels = max(v.shape[1], beat.shape[1])
+    vocal_mix = np.repeat(v, channels, axis=1) if v.shape[1] == 1 and channels == 2 else v
+    if beat.shape[1] == 1 and channels == 2:
+        beat = np.repeat(beat, 2, axis=1)
+    if not np.isfinite(beat).all():
+        raise RuntimeError("Beat adaptation produced non-finite audio")
+    # Smooth 50-ms vocal activity; make room by lowering only the instrumental.
+    amplitude = np.max(np.abs(v), axis=1).astype(np.float64)
+    window = min(frames, max(1, round(sr * 0.05)))
+    padded = np.pad(amplitude, (window // 2, window - 1 - window // 2), mode="edge")
+    integral = np.concatenate(([0.0], np.cumsum(padded)))
+    envelope = (integral[window:] - integral[:-window]) / window
+    activity = np.clip(envelope / max(vocal_peak * 0.3, 1e-8), 0, 1)
+    beat = beat.astype(np.float64) * (1.0 - 0.5 * activity[:, None])
+    # A conservative global bound avoids a limiter touching the vocal waveform.
+    room = max(0.0, 0.999 - vocal_peak)
+    beat_peak = float(np.max(np.abs(beat)))
+    beat_gain = min(1.0, room / beat_peak) if beat_peak else 1.0
+    beat = (beat * beat_gain).astype(np.float32)
+    mixed = (vocal_mix.astype(np.float64) + beat).astype(np.float32)
+    if not np.isfinite(mixed).all() or np.max(np.abs(mixed)) >= 1.0:
+        raise RuntimeError("Protected mix exceeded available headroom")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(beat_output), beat, sr, subtype="FLOAT")
+    sf.write(str(output), mixed, sr, subtype="FLOAT")
+    digest = hashlib.sha256()
+    with vocal_path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    vocal_hash = digest.hexdigest()
+    report = {
+        "mode": "vocal-led", "vocal_modified": False,
+        "vocal_sha256": vocal_hash,
+        "vocal_stem": str(vocal_path), "adapted_beat": str(beat_output),
+        "sample_rate": sr, "frames": frames,
+        "beat_stretch_rate": rate if stretched else 1.0,
+        "beat_gain": beat_gain, "beat_duck_db_max": 6.0206,
+        "alignment": "shared start; duration conforming only",
+        "mix_peak": float(np.max(np.abs(mixed))),
+    }
+    report_output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return str(output)
+
+
 def combine_tracks(
     vocals_path: str | Path,
     instrumental_path: str | Path,
     out_path: str | Path,
     vocals_gain_db: float = 0.0,
     progress_cb: Optional[_ProgressCB] = None,
+    *, preserve_vocals: bool = True,
 ) -> str:
-    """Mix converted vocals back over the instrumental, same length."""
+    """Preserve the clone and adapt the beat; legacy mixing is explicit opt-in."""
+    if preserve_vocals:
+        if vocals_gain_db != 0.0:
+            raise ValueError("Protected vocals require vocals_gain_db=0; adjust the beat instead")
+        result = mix_around_vocal(vocals_path, instrumental_path, out_path)
+        (progress_cb or _noop)("Beat adapted; cloned vocal preserved", 100)
+        return result
     cb = progress_cb or _noop
     cb("Mixing converted vocals over instrumental...", 80)
     v, vsr = sf.read(str(vocals_path), dtype="float32")
@@ -726,7 +824,8 @@ def change_song(
     separation: str = "demucs",
     vocals_gain_db: float = 0.0,
     require_neural: bool = False,
-    source_matched_export: bool = True,
+    source_matched_export: bool = False,
+    preserve_vocals: bool = True,
 ) -> tuple[Optional[str], dict]:
     """
     One-call production contract: neural-separate the song first, convert only
@@ -761,32 +860,35 @@ def change_song(
     ok, msg = convert_vocals(vocals, profile, conv_vocals, out_dir, cb,
                              require_neural=require_neural)
     steps["conversion"] = msg
+    if not ok:
+        raise RuntimeError(f"Vocal conversion failed: {msg}")
 
-    # Source-aware polish: match the converted vocal's dynamics envelope to
-    # the isolated source performance so the replacement sits naturally in
-    # the original mix. The polished stem becomes the remix input; the raw
-    # converted stem stays on disk for inspection.
     remix_vocals = conv_vocals
-    try:
+    if not preserve_vocals:
         polished = out_dir / "polished_vocals.wav"
         polish_converted_vocals(conv_vocals, vocals, polished, cb)
         remix_vocals = polished
         steps["vocal_polish"] = str(polished)
-    except Exception as exc:
-        steps["polish_warning"] = str(exc)
+    else:
+        steps["vocal_preservation"] = "unchanged clone; adapt instrumental only"
+        steps["vocal_stem"] = str(conv_vocals)
 
     cb("Recombining with the instrumental...", 75)
     stem = Path(song_path).stem.replace(" ", "_")
     new_name = f"{stem}_in_{profile.get('name', 'voice')}.wav"
     out_path = out_dir / new_name
+    mix_options = {} if preserve_vocals else {"preserve_vocals": False}
     combine_tracks(remix_vocals, inst, out_path,
-                   vocals_gain_db=vocals_gain_db, progress_cb=cb)
+                   vocals_gain_db=vocals_gain_db, progress_cb=cb, **mix_options)
+    if preserve_vocals:
+        steps["mix_report"] = str(out_path.with_suffix(".mix.json"))
+        steps["adapted_beat"] = str(out_path.with_name(out_path.stem + "_adapted_beat.wav"))
     steps["output"] = str(out_path)
 
     # Keep WAV as the processing master; optionally make an iPhone-friendly
     # delivery copy matching the source codec/bitrate class.
     delivery_path = str(out_path)
-    if source_matched_export:
+    if source_matched_export and not preserve_vocals:
         try:
             from audio_export import export_like_source
             delivery_path = export_like_source(out_path, song_path, out_dir / "delivery")
