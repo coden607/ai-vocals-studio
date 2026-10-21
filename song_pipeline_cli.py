@@ -94,6 +94,8 @@ def main() -> int:
             "beat": instrumental,
             "verse_voices": verses["voices"],
             "turns": verses["turns"],
+            "verses": verses.get("verses", []),
+            "verse_voice_backend": verses.get("backend"),
             "cloned_vocal_alone": str(cloned),
             "cloned_vocal_over_beat": str(over),
             "conversion": msg,
