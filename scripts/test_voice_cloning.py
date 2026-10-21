@@ -16,8 +16,6 @@ import os
 import urllib.request
 from pathlib import Path
 
-from ai_vocals_studio.voice_cloning import clone_voice
-
 # ----------------------------------------------------------------------------
 # Helper to download a small WAV file (≈3 s of spoken English).
 # We'll use a public‑domain sample from the "VoxForge" dataset.
@@ -37,6 +35,8 @@ def download_file(url: str, dest: Path):
     return dest
 
 def main():
+    from ai_vocals_studio.voice_cloning import clone_voice
+
     data_dir = Path(".tmp_voice_test")
     source_wav = download_file(SOURCE_WAV_URL, data_dir / "source.wav")
     reference_wav = download_file(REFERENCE_WAV_URL, data_dir / "reference.wav")
