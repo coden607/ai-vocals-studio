@@ -1,19 +1,21 @@
 # AI Vocals Studio - Minimal Requirements for Python 3.12
 # =====================================================
+# Pins relaxed to versions available on PyPI as of 2026-10.
 
 # Core dependencies
 gTTS>=2.3.0
 pydub>=0.25.1
-numpy>=2.5.4
+numpy>=2.0,<2.3
 soundfile>=0.12.0
 librosa>=0.10.0
-Pillow>=12.3.0
+Pillow>=10
 kaggle>=2.2.4
-requests>=2.34.2
+requests>=2.31
 streamlit>=1.48.0
-pyworld>=0.3.6
+pyworld>=0.3.5
 demucs>=4.1.0
 elevenlabs>=2.73.1
+setuptools<81
 
 # Qwen3-TTS - Best free voice cloning with 3-second rapid cloning
 qwen-tts>=0.1.1
