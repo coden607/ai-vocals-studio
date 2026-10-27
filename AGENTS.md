@@ -129,6 +129,9 @@ Core skills to apply on this repo:
 - `route-with-jev` and `jev-gate`: use them to pick retry, stop, or ask. Do not use them to draft a clone claim.
 - `run-software-factory` and `build-dark-factory`: a song or clone change still needs the focused test before a PR.
 - `compress-token-spend`: read the file you will edit, not the whole tree.
+- `route-mode-and-model`: pick the cheapest capable mode and model tier per task.
+- `prefer-chat-mode`: answer in chat when no tools or files are needed.
+- `anticipate`: Do Now / Suggest / Ask First; output Result -> Blocker -> Next Action.
 - `legal-war-room`: use only for a real filing or consent question. It does not authorize a voice.
 
 Song render uses `song_pipeline_cli.py render`. That command is local until GitHub auth can push `song-verse-render`.
