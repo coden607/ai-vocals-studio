@@ -130,7 +130,7 @@ export default async function handler(req, res) {
     for (const file of files.slice(0, 4)) {
       if (!file || !file.data) continue;
       const blob = new Blob([Buffer.from(String(file.data), "base64")], { type: file.type || "application/octet-stream" });
-      voiceForm.append("files[]", blob, cleanName(file.name || "voice-sample.wav"));
+      voiceForm.append("files", blob, cleanName(file.name || "voice-sample.wav"));
     }
 
     const voiceResponse = await elevenFetch("/voices/add", {
