@@ -1,0 +1,20 @@
+{
+  "archon": "0.12.1",
+  "archon_repo": "https://github.com/coleam00/Archon",
+  "factory_repo": "https://github.com/coleam00/ai-software-factory",
+  "dark_factory": false,
+  "auto_merge": false,
+  "forward_dotenv_to_providers": false,
+  "required_checks": [
+    "unit"
+  ],
+  "protected_paths": [
+    ".env",
+    ".env.*",
+    "MISSION.md",
+    "FACTORY_RULES.md",
+    "harness/harness.config.json",
+    "harness/END-TO-END.md",
+    ".factory/holdout/"
+  ]
+}
