@@ -56,15 +56,22 @@ def download_qwen3():
         print(f"⚠️ Unexpected error while downloading Qwen3: {exc}")
 
 def download_coqui():
-    # Coqui provides a CLI to download models; we invoke it via subprocess.
-    import subprocess, sys
+    # Use Coqui's ModelManager to download the model and copy it locally.
+    from TTS.utils.manage import ModelManager
+    import shutil
     model_dir = Path("external/models/coqui")
     _ensure_dir(model_dir)
-    # Example model – VCTK‑based English VITS. Adjust as needed.
     model_name = "tts_models/en/vctk/vits"
-    print(f"Downloading Coqui TTS model '{model_name}' to {model_dir} …")
-    subprocess.run([sys.executable, "-m", "TTS", "--model_name", model_name, "--download_dir", str(model_dir)], check=True)
-    print("Coqui model downloaded.")
+    print(f"Downloading Coqui TTS model '{model_name}' …")
+    manager = ModelManager()
+    # download_model returns a tuple (model_path, config_path, model_item).
+    model_path, _, _ = manager.download_model(model_name)
+    src_path = Path(model_path)
+    if src_path.is_dir():
+        shutil.copytree(src_path, model_dir, dirs_exist_ok=True)
+    else:
+        shutil.copy2(src_path, model_dir / src_path.name)
+    print("Coqui model downloaded to external/models/coqui.")
 
 def main():
     parser = argparse.ArgumentParser(description="Download pretrained voice‑cloning models.")

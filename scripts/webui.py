@@ -5,7 +5,7 @@ and receive the path to the generated output file.
 ''' 
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import shutil
 import uuid
 import os
@@ -13,6 +13,17 @@ import subprocess
 import sys
 
 app = FastAPI(title="AI Vocals Studio WebUI")
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <html><head><title>AI Vocals Studio</title></head>
+    <body>
+    <h1>AI Vocals Studio Web UI</h1>
+    <p>Explore the API via <a href=\"/docs\">Swagger UI</a> or check <a href=\"/health\">health</a>.</p>
+    </body></html>
+    """
+
 
 # Directory to store temporary uploads and outputs
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

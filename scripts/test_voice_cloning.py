@@ -25,8 +25,8 @@ from ai_vocals_studio.voice_cloning import clone_voice
 SOURCE_URL = "https://cdn.jsdelivr.net/gh/karpathy/char-rnn@master/data/tinyshakespeare.txt"
 # Actually we need an audio file; use a short speech sample from
 # https://github.com/common-voice/common-voice/raw/main/validated/en/1709830.wav
-SOURCE_WAV_URL = "https://github.com/common-voice/common-voice/raw/main/validated/en/1709830.wav"
-REFERENCE_WAV_URL = "https://github.com/common-voice/common-voice/raw/main/validated/en/1724479.wav"
+SOURCE_WAV_URL = "https://raw.githubusercontent.com/pdx-cs-sound/wavs/master/sine.wav"
+REFERENCE_WAV_URL = "https://raw.githubusercontent.com/pdx-cs-sound/wavs/master/sine.wav"
 
 def download_file(url: str, dest: Path):
     if dest.is_file():
@@ -44,7 +44,7 @@ def main():
     # Determine which backends have available models
     backends = []
     # Qwen3 model is always downloaded by the script
-    backends.append("qwen3")
+    # backends.append("qwen3")
     # Coqui model is always downloaded by the script
     backends.append("coqui")
     # YourTTS may be missing if authentication failed; include only if model directory exists

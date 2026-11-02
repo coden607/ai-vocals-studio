@@ -49,7 +49,7 @@ def test_change_song_always_separates_before_conversion_and_remix(monkeypatch, t
         calls.append(("separate", Path(song_path).name, method, allow_fallback))
         return str(vocals), str(inst), "demucs"
 
-    def fake_convert(vocals_path, profile, out_path, work_dir, progress_cb=None, require_neural=False):
+    def fake_convert(vocals_path, profile, out_path, work_dir, progress_cb=None, require_neural=False, pitch_steps=None):
         calls.append(("convert", Path(vocals_path).name, require_neural))
         _tone(Path(out_path), 44100, 0.25, 220)
         return True, "Seed-VC zero-shot neural voice conversion"
@@ -159,7 +159,7 @@ def test_change_song_remixes_polished_vocal_not_raw_conversion(monkeypatch, tmp_
         lambda *args, **kwargs: (str(vocals), str(inst), "demucs"),
     )
 
-    def fake_convert(vocals_path, profile, out_path, work_dir, progress_cb=None, require_neural=False):
+    def fake_convert(vocals_path, profile, out_path, work_dir, progress_cb=None, require_neural=False, pitch_steps=None):
         _tone(Path(out_path), 44100, 0.25, 220)
         return True, "Seed-VC zero-shot neural voice conversion"
 

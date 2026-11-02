@@ -277,6 +277,178 @@ def separate_vocals(
     return separate_vocals(song_path, work_dir, "center", cb, allow_fallback=True)
 
 
+# ─────────────────────────────────────────────────────────────────
+#  Key matching: the beat follows the voice, never the other way round
+# ─────────────────────────────────────────────────────────────────
+#
+#  A cloned voice has its own natural register. Forcing it up or down to the
+#  source singer's key is what makes a conversion sound like an impression
+#  rather than the person. So the performance is moved into the target voice's
+#  register and the INSTRUMENTAL is transposed by the same interval, which
+#  keeps voice and beat in one key and transposes the whole track instead.
+#
+#  Tempo is deliberately untouched: the phase vocoder shifts pitch without
+#  changing duration, so the groove, bar lines and timing of the original beat
+#  survive. The instrumental remains the timing clock; only its key follows.
+
+#  Transposing further than this stops sounding like a key change and starts
+#  sounding broken (chipmunk / sludge), so a shift is clamped.
+MAX_KEY_SHIFT_SEMITONES = 7.0
+
+#  Below this the shift is inaudible and not worth a resynthesis pass.
+MIN_AUDIBLE_SEMITONES = 0.1
+
+
+def _phase_vocoder_stretch(y: np.ndarray, rate: float,
+                           n_fft: int = 2048, hop: int = 512) -> np.ndarray:
+    """
+    Time-stretch without changing pitch. `rate` < 1 lengthens, > 1 shortens.
+    numpy-only so the key-matching path survives without librosa.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    if y.size < n_fft or abs(rate - 1.0) < 1e-6:
+        return y
+
+    window = np.hanning(n_fft).astype(np.float32)
+    n_frames = 1 + (y.size - n_fft) // hop
+    spectra = np.empty((n_frames, n_fft // 2 + 1), dtype=np.complex128)
+    for i in range(n_frames):
+        spectra[i] = np.fft.rfft(y[i * hop:i * hop + n_fft] * window)
+
+    magnitude = np.abs(spectra)
+    phase = np.angle(spectra)
+    # Expected per-hop phase advance of each bin, removed so only the
+    # deviation is scaled - that is what keeps transients from smearing.
+    expected = 2.0 * np.pi * hop * np.arange(n_fft // 2 + 1) / n_fft
+
+    positions = np.arange(0, n_frames - 1, rate)
+    out = np.zeros(int(len(positions) * hop) + n_fft, dtype=np.float32)
+    weight = np.zeros_like(out)
+    accumulated = phase[0].copy()
+
+    for index, position in enumerate(positions):
+        left = int(np.floor(position))
+        frac = float(position - left)
+        mag = (1.0 - frac) * magnitude[left] + frac * magnitude[left + 1]
+
+        frame = np.fft.irfft(mag * np.exp(1j * accumulated), n=n_fft).astype(np.float32)
+        start = index * hop
+        out[start:start + n_fft] += frame * window
+        weight[start:start + n_fft] += window ** 2
+
+        delta = phase[left + 1] - phase[left] - expected
+        delta = np.mod(delta + np.pi, 2.0 * np.pi) - np.pi
+        accumulated = accumulated + expected + delta
+
+    nonzero = weight > 1e-8
+    out[nonzero] /= weight[nonzero]
+    return out[:int(len(positions) * hop)].astype(np.float32)
+
+
+def pitch_shift_semitones(y: np.ndarray, sr: int, semitones: float) -> np.ndarray:
+    """
+    Shift pitch by `semitones` while preserving duration (and so tempo).
+    Uses librosa when installed, otherwise the numpy phase vocoder above.
+    """
+    y = np.asarray(y, dtype=np.float32)
+    if abs(semitones) < MIN_AUDIBLE_SEMITONES or y.size == 0:
+        return y
+    if HAS_LIBROSA:
+        try:
+            return librosa.effects.pitch_shift(y, sr=sr, n_steps=float(semitones))
+        except Exception:
+            pass
+    # Stretch then resample by the inverse ratio: duration returns to the
+    # original while every frequency is scaled.
+    rate = 2.0 ** (-float(semitones) / 12.0)
+    stretched = _phase_vocoder_stretch(y, rate)
+    if stretched.size == 0:
+        return y
+    shifted = _resample(stretched, int(round(sr / rate)), sr)
+    if shifted.size >= y.size:
+        return shifted[:y.size].astype(np.float32)
+    return np.pad(shifted, (0, y.size - shifted.size)).astype(np.float32)
+
+
+def voice_shift_semitones(vocals_path: str | Path, profile: dict,
+                          sr: int = 22050) -> float:
+    """
+    How far the source performance must move to sit in the target voice's
+    natural register. Positive means up. Returns 0.0 when either pitch is
+    unknown, so an unmeasurable voice never silently transposes a song.
+    """
+    audio_profile = profile.get("audio_profile", {}) or {}
+    target_f0 = float(audio_profile.get("median_f0_hz", 0.0) or 0.0)
+    if target_f0 <= 40:
+        return 0.0
+    source_f0, _ = estimate_pitch(_load_mono(vocals_path, sr), sr)
+    if source_f0 <= 40:
+        return 0.0
+    return _limit(float(12.0 * np.log2(target_f0 / source_f0)),
+                  -MAX_KEY_SHIFT_SEMITONES, MAX_KEY_SHIFT_SEMITONES)
+
+
+def transpose_audio_file(
+    src_path: str | Path,
+    semitones: float,
+    out_path: str | Path,
+    progress_cb: Optional[_ProgressCB] = None,
+    label: str = "audio",
+    percent: int = 70,
+) -> tuple[str, float]:
+    """
+    Transpose a file by `semitones`, preserving its duration and tempo.
+    Returns (path_used, semitones_applied); a negligible shift returns the
+    original path untouched rather than paying for a resynthesis.
+    """
+    cb = progress_cb or _noop
+    if abs(semitones) < MIN_AUDIBLE_SEMITONES:
+        return str(src_path), 0.0
+
+    cb(f"Transposing {label} ({semitones:+.1f} st)...", percent)
+    audio, sr = sf.read(str(src_path), dtype="float32", always_2d=True)
+    shifted = np.stack(
+        [pitch_shift_semitones(audio[:, ch], sr, semitones) for ch in range(audio.shape[1])],
+        axis=-1,
+    )
+    peak = float(np.max(np.abs(shifted))) or 1.0
+    if peak > 1.0:
+        shifted = shifted / peak * 0.98
+    sf.write(str(out_path), shifted.astype(np.float32), sr)
+    return str(out_path), float(semitones)
+
+
+def match_instrumental_to_voice(
+    instrumental_path: str | Path,
+    semitones: float,
+    out_path: str | Path,
+    progress_cb: Optional[_ProgressCB] = None,
+) -> tuple[str, float]:
+    """The beat follows the voice: transpose the separated instrumental."""
+    return transpose_audio_file(
+        instrumental_path, semitones, out_path, progress_cb,
+        label="the beat to the voice", percent=70,
+    )
+
+
+def move_vocal_into_voice_register(
+    vocals_path: str | Path,
+    semitones: float,
+    out_path: str | Path,
+    progress_cb: Optional[_ProgressCB] = None,
+) -> tuple[str, float]:
+    """
+    Put the isolated performance in the target voice's register BEFORE
+    conversion, so every engine - Seed-VC, RVC or DSP - converts audio that is
+    already in the right range. Doing it here, once, is what keeps the beat
+    shift and the vocal shift equal and the output in a single key.
+    """
+    return transpose_audio_file(
+        vocals_path, semitones, out_path, progress_cb,
+        label="the performance into the voice's register", percent=35,
+    )
+
+
 def _load_mono(path: str | Path, sr: int = 22050) -> np.ndarray:
     """Load any audio file as mono float32 at `sr`."""
     if HAS_LIBROSA:
@@ -310,9 +482,22 @@ def estimate_pitch(y: np.ndarray, sr: int = 22050) -> tuple[float, float]:
             return 0.0, 0.0
         return float(np.median(voiced)), float(np.std(voiced))
     try:
+        frame_length, hop_length = 2048, 512
         f0 = librosa.yin(y, fmin=librosa.note_to_hz("C2"),
-                         fmax=librosa.note_to_hz("C6"), sr=sr)
-        voiced = f0[(f0 > 0) & np.isfinite(f0)]
+                         fmax=librosa.note_to_hz("C6"), sr=sr,
+                         frame_length=frame_length, hop_length=hop_length)
+        # librosa.yin reports a pitch for every frame, including silence and
+        # noise - it has no voicing decision. Without the same energy gate the
+        # numpy fallback applies, a silent or unpitched stem returns a
+        # confident nonsense median, which is enough to transpose a whole song.
+        rms = librosa.feature.rms(y=y, frame_length=frame_length,
+                                  hop_length=hop_length)[0]
+        count = min(f0.size, rms.size)
+        if count == 0:
+            return 0.0, 0.0
+        f0, rms = f0[:count], rms[:count]
+        threshold = max(1e-4, float(np.percentile(rms, 65)) * 0.25)
+        voiced = f0[(f0 > 0) & np.isfinite(f0) & (rms > threshold)]
         if voiced.size == 0:
             return 0.0, 0.0
         return float(np.median(voiced)), float(np.std(voiced))
@@ -472,9 +657,15 @@ def convert_vocals(
     work_dir: str | Path,
     progress_cb: Optional[_ProgressCB] = None,
     require_neural: bool = False,
+    pitch_steps: Optional[float] = None,
 ) -> tuple[bool, str]:
     """
     Run the song's vocals through the selected voice's converter.
+
+    `pitch_steps` is the pitch decision made by the caller. change_song moves
+    the performance into the voice's register before calling this and then
+    passes 0.0, so no engine applies a second, different shift - that mismatch
+    is what previously left the vocal and the beat in different keys.
 
     Prefers Seed-VC zero-shot conversion when SEED_VC_DIR is configured and a
     reference recording is available, then RVC when a trained model exists,
@@ -514,9 +705,11 @@ def convert_vocals(
         try:
             from rvc_engine import RvcEngine
             engine = RvcEngine(str(voice_dir.parent))
+            # Was hardcoded to 0, which forced every RVC render into the
+            # source singer's key regardless of the target voice.
             ok, msg = engine.convert(
                 name, vocals_path, out_path,
-                pitch_shift=0, progress_cb=cb,
+                pitch_shift=int(round(pitch_steps or 0.0)), progress_cb=cb,
             )
             if ok:
                 return True, "RVC neural voice conversion"
@@ -545,7 +738,8 @@ def convert_vocals(
             "A working Seed-VC reference conversion or trained RVC backend is "
             "required for neural song replacement; DSP fallback is disabled."
         )
-    dsp_morph_vocals(vocals_path, profile, out_path, progress_cb=cb)
+    dsp_morph_vocals(vocals_path, profile, out_path, progress_cb=cb,
+                     pitch_steps=pitch_steps)
     return True, "DSP timbre mapping (RVC optional - train a model to upgrade)"
 
 
@@ -727,11 +921,17 @@ def change_song(
     vocals_gain_db: float = 0.0,
     require_neural: bool = False,
     source_matched_export: bool = True,
+    match_beat_to_voice: bool = True,
 ) -> tuple[Optional[str], dict]:
     """
-    One-call production contract: neural-separate the song first, convert only
-    the isolated vocal while preserving source timing/pitch contour, then remix
-    that converted vocal over the separated original instrumental.
+    One-call production contract: neural-separate the song first, move the
+    isolated performance into the target voice's natural register, convert it,
+    then transpose the separated instrumental by the SAME interval and remix.
+
+    The beat follows the voice, not the other way round. Tempo and timing are
+    untouched; only the key moves, so the whole track is transposed into a
+    range the cloned voice actually has. Pass match_beat_to_voice=False to
+    keep the original key and let the voice bend to the song instead.
 
     Returns (output_song_path, steps_done) where steps_done describes the
     produced artifacts and which techniques were used.
@@ -756,10 +956,32 @@ def change_song(
         )
     steps["separation"] = method
 
+    # The key decision is made once, from the separated vocal and the voice
+    # profile, and then applied to BOTH the performance and the beat.
+    shift = voice_shift_semitones(vocals, profile) if match_beat_to_voice else 0.0
+    steps["voice_shift_semitones"] = f"{shift:+.2f}"
+    # A clamped shift means the voice could not fully reach its own register,
+    # so the result is a compromise. Say so rather than hiding it.
+    if abs(shift) >= MAX_KEY_SHIFT_SEMITONES - 1e-6:
+        steps["key_shift_clamped"] = (
+            f"limited to {MAX_KEY_SHIFT_SEMITONES:.0f} semitones; the voice is "
+            f"further from the performance than a usable transposition allows"
+        )
+
+    convert_input = vocals
+    if match_beat_to_voice:
+        in_register, applied = move_vocal_into_voice_register(
+            vocals, shift, out_dir / "vocals_in_voice_register.wav", cb)
+        convert_input = in_register
+        steps["vocal_register_shift"] = f"{applied:+.2f}"
+
     cb("Converting vocals to the cloned voice...", 45)
     conv_vocals = out_dir / "converted_vocals.wav"
-    ok, msg = convert_vocals(vocals, profile, conv_vocals, out_dir, cb,
-                             require_neural=require_neural)
+    # pitch_steps=0.0: the register move above already placed the performance,
+    # so no engine may apply a second shift the beat would not know about.
+    ok, msg = convert_vocals(convert_input, profile, conv_vocals, out_dir, cb,
+                             require_neural=require_neural,
+                             pitch_steps=0.0 if match_beat_to_voice else None)
     steps["conversion"] = msg
 
     # Source-aware polish: match the converted vocal's dynamics envelope to
@@ -769,17 +991,30 @@ def change_song(
     remix_vocals = conv_vocals
     try:
         polished = out_dir / "polished_vocals.wav"
-        polish_converted_vocals(conv_vocals, vocals, polished, cb)
+        # Dynamics are matched against the performance actually converted, so
+        # the envelope reference shares its register with the output.
+        polish_converted_vocals(conv_vocals, convert_input, polished, cb)
         remix_vocals = polished
         steps["vocal_polish"] = str(polished)
     except Exception as exc:
         steps["polish_warning"] = str(exc)
 
+    # The beat follows the voice: transpose the separated instrumental by the
+    # same interval so vocal and beat land in one key.
+    remix_inst = inst
+    if match_beat_to_voice:
+        remix_inst, beat_applied = match_instrumental_to_voice(
+            inst, shift, out_dir / "instrumental_in_voice_key.wav", cb)
+        steps["beat_key_shift"] = f"{beat_applied:+.2f}"
+        steps["beat_follows_voice"] = "yes"
+    else:
+        steps["beat_follows_voice"] = "no (original key kept)"
+
     cb("Recombining with the instrumental...", 75)
     stem = Path(song_path).stem.replace(" ", "_")
     new_name = f"{stem}_in_{profile.get('name', 'voice')}.wav"
     out_path = out_dir / new_name
-    combine_tracks(remix_vocals, inst, out_path,
+    combine_tracks(remix_vocals, remix_inst, out_path,
                    vocals_gain_db=vocals_gain_db, progress_cb=cb)
     steps["output"] = str(out_path)
 
