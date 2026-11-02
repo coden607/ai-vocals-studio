@@ -6,4 +6,4 @@ setuptools<85
 faiss-cpu
 ffmpeg-python
 torch<2.6  # fairseq hubert checkpoint needs pre-2.6 torch.load default
-torchaudio<2.6
+torchaudio<2.12
