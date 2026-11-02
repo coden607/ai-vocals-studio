@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,7 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env={**os.environ, "SEED_VC_DIR": str(ROOT / ".test-missing-seed-vc")},
         # 300s: each _run spawns a fresh interpreter that cold-imports
         # librosa/numba (~30s) before any DSP work; shared 2-core CI boxes
         # can push a cold run past 120s without the pipeline being broken.

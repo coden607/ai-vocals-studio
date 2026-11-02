@@ -50,7 +50,7 @@ _ProgressCB = Callable[[str, int], None]
 
 DEFAULT_VOICES_DIR = Path(os.environ.get("VOICES_DIR", "models/voices"))
 SAMPLE_RATE = 22050
-REFERENCE_DURATION = 12.0    # seconds of clean voice kept as reference
+REFERENCE_DURATION = 20.0    # seconds of clean voice kept as reference
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac", ".aiff"}
 
 
@@ -306,7 +306,7 @@ def extract_reference_audio(
     Get a clean mono 22.05 kHz reference clip from any source.
 
     source_type:
-      "song"   -> vocals are separated out first, then the loudest ~12 s kept
+      "song"   -> vocals are separated out first, then the strongest ~20 s kept
       "speech" -> silence-trimmed, kept mostly as-is (capped to ~25 s)
       "text"   -> pass the TTS-generated speech straight through
 

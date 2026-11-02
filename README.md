@@ -37,26 +37,16 @@ A beautiful, dark-themed AI voice cloning and generation application with advanc
 
 ## 🚀 Quick Start
 
-1. **Run the Application**:
-   ```bash
-   python app_modern.py
-   ```
+Install the complete local stack once, then launch the desktop app:
 
-2. **Add Training Data**:
-   - Go to the "Training Data" tab
-   - Click "Import Entire Folder" to add audio files
-   - Or use "Import Single File" for individual files
+```bash
+./install.sh
+./run.sh
+```
 
-3. **Load a Model**:
-   - Go to the "Models" tab
-   - Download a pre-trained model or import your own
-   - Select and load the model
+For the fastest no-training workflow, create a saved profile from 15–20 seconds of clean authorized voice audio, select a song under **Generate → Audio Input**, and click **Replace Song Vocals**. Seed-VC performs zero-shot neural conversion after Demucs separation; no paid API or per-speaker training is required.
 
-4. **Generate Vocals**:
-   - Go to the "Generate" tab
-   - Enter text or select an audio file
-   - Configure output settings
-   - Click "Generate Vocals"
+The equivalent one-command CLI workflow and stem-only commands are in [QUICK_START.md](QUICK_START.md). A trained RVC model can still be imported or trained for voice-specific conversion.
 
 ## Vercel + Worker Deployment
 
@@ -112,7 +102,7 @@ Pacaveli is an authorized project voice. Keep source recordings and trained mode
 For high-fidelity rap/singing conversion, use a **real RVC model** rather than the legacy DSP/persona transform. Prepare/train an authorized dataset with:
 
 ```bash
-venv/bin/python rvc_training_cli.py \\
+.venv/bin/python rvc_training_cli.py \\
   --voice-dir models/voices/pacaveli \\
   --dataset /path/to/authorized/pacaveli-clean-vocals \\
   --i-have-permission
@@ -121,48 +111,36 @@ venv/bin/python rvc_training_cli.py \\
 Or register an already-trained RVC model:
 
 ```bash
-venv/bin/python rvc_training_cli.py \\
+.venv/bin/python rvc_training_cli.py \\
   --voice-dir models/voices/pacaveli \\
   --model /path/to/pacaveli.pth \\
   --index /path/to/pacaveli.index \\
   --i-have-permission
 ```
 
-The intended production song path is **ingest → Demucs separation (when needed) → vocal cleanup → authorized RVC conversion → timing/prosody preservation → QA → remix/export**. Qwen3-TTS and XTTS are reference/TTS options; ElevenLabs remains optional. WORLD/DSP is a preview/fallback and must not be presented as a trained clone.
+The intended production song path is **ingest → Demucs separation (when needed) → vocal cleanup → authorized Seed-VC/RVC conversion → timing/prosody preservation → QA → remix/export**. Qwen3-TTS and XTTS are reference/TTS options; ElevenLabs remains optional. WORLD/DSP is a preview/fallback and must not be presented as a trained clone.
 
 > Do not commit private training audio, credentials, or trained model binaries. See `AGENTS.md` for quality gates and release discipline.
 
 ## Seed-VC zero-shot song conversion
 
-AI Vocals Studio supports **Seed-VC** as the preferred zero-shot audio-to-audio
-engine for authorized rap/singing voices. Seed-VC is GPL-3.0 and its upstream
-repository is archived, so its source, model weights, and private voice audio
-are **not vendored** here. Install it as a separate runtime and point the app at
-that checkout:
+AI Vocals Studio uses **[Seed-VC](https://github.com/Plachtaa/seed-vc)** as the default zero-shot audio-to-audio engine for authorized speech, rap, and singing. It needs only a clean reference recording—no per-speaker training. The installer clones the upstream GPL-3.0 source into the ignored `.engines/seed-vc/` directory and installs an isolated Python 3.10 runtime:
 
 ```bash
-git clone https://github.com/Plachtaa/seed-vc.git /opt/seed-vc
-cd /opt/seed-vc
-pip install -r requirements.txt
-export SEED_VC_DIR=/opt/seed-vc
-export SEED_VC_PYTHON="$(command -v python)"
+./install_voice_engines.sh
 ```
 
-The adapter uses Seed-VC V1 with F0 conditioning for singing/rap, disables fp16
-for CPU compatibility, preserves source timing with length-adjust 1.0, and uses
-the voice profile's authorized reference audio. Model checkpoints are fetched
-by Seed-VC on first use and should be cached in the worker image/volume for
-production. A trained RVC model remains a second neural backend; DSP is fallback
-only.
+The adapter automatically discovers this installation. For an existing custom checkout, set `SEED_VC_DIR` and `SEED_VC_PYTHON`. It uses Seed-VC V1 with F0 conditioning for singing/rap, disables fp16 for CPU compatibility, preserves source timing with length-adjust 1.0, and keeps up to 20 seconds of authorized reference audio. Model checkpoints download from Hugging Face on first use and should be cached in the worker image/volume for production.
 
-## RVC Pro-Match Models
+The desktop **Replace Song Vocals** button and `clone_any_voice.py` both route reference profiles through Demucs + Seed-VC when available. A trained RVC model remains another neural backend; DSP is fallback only and cannot pass Studio or Pro quality gates.
+
+## Neural Pro-Match and optional RVC models
 
 The WORLD/DSP profile is a fallback and cannot provide near-indistinguishable
-voice replacement. Pro-match requires a real, authorized RVC model plus the
-RVC inference sidecar. Validate a clean dataset before training:
+voice replacement. Pro-match requires Seed-VC with an authorized reference or a real, authorized RVC model plus the RVC inference sidecar; either way, the neural speaker-identity and reference-quality gates must pass. Validate a clean dataset before optional RVC training:
 
 ```bash
-venv/bin/python rvc_training_cli.py \
+.venv/bin/python rvc_training_cli.py \
   --voice-dir models/voices/my_authorized_voice \
   --dataset /path/to/clean-vocals \
   --i-have-permission
@@ -173,7 +151,7 @@ The command expects an installed trainer named `rvc-train` with `--dataset`,
 authorized RVC tool:
 
 ```bash
-venv/bin/python rvc_training_cli.py \
+.venv/bin/python rvc_training_cli.py \
   --voice-dir models/voices/my_authorized_voice \
   --model /path/to/model.pth \
   --index /path/to/model.index \
@@ -182,8 +160,8 @@ venv/bin/python rvc_training_cli.py \
 
 The importer rejects undersized or invalid artifacts, writes
 `rvc_training_report.json` when validating data, and updates the voice profile
-so the conversion planner can select RVC. Pro-match stops if RVC is not
-actually available; it does not silently return a weaker DSP clone.
+so the conversion planner can select RVC. Pro-match stops if neither neural
+backend is actually available; it does not silently return a weaker DSP clone.
 
 Local fallback setup:
 
@@ -375,3 +353,25 @@ python -m pytest -q test_vocal_led_mix.py test_song_pipeline_production.py test_
 
 Synthetic tests establish sample preservation and beat-only transforms. They do not
 establish neural clone quality or musical quality on real songs; audition those separately.
+
+### Runtime limits and verification
+
+Imported RVC checkpoints explicitly select RVC, including their retrieval index.
+RVC keeps its native sample rate so upstream resampling cannot alter pitch or
+timing. Its HuBERT metadata uses a scoped fairseq `Dictionary` allowlist under
+PyTorch weights-only loading; arbitrary checkpoint globals remain blocked.
+
+CPU inference can be slow, particularly Seed-VC's first run and model downloads.
+A four-step CPU Seed-VC smoke produced clipped audio and was rejected by the
+protected remix guard. Do not treat that run as verified Studio quality. Use a
+licensed trained RVC profile for the verified CPU song-replacement path; speaker
+identity and pitch preservation still require measurement for each voice/song.
+The protected mixer rejects full-scale vocals rather than concealing clipping.
+
+A local 3-second CPU acceptance run using the Apache-2.0-labelled
+[Nekochu VCTK p226 sample](https://huggingface.co/Nekochu/RVC-VCTK_Voice-sample)
+completed Demucs → RVC → protected remix in 68 seconds. Measured neural speaker
+similarity was 0.7794 (Studio, below the 0.82 near-precision threshold), pitch
+correlation 0.993, median voiced pitch error 10 cents, duration drift 20 ms, and
+mix peak 0.631. The cloned vocal remained unchanged during remix. These are
+results for this short fixture, not guarantees for arbitrary songs or voices.

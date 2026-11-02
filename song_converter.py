@@ -487,7 +487,8 @@ def convert_vocals(
     # Seed-VC needs no per-speaker training: an authorized reference recording
     # is enough. This is the preferred zero-shot path for rap/singing.
     reference = profile.get("reference") or profile.get("reference_audio")
-    if reference:
+    prefer_rvc = str(profile.get("preferred_engine") or "").upper() == "RVC"
+    if reference and not prefer_rvc:
         reference_path = Path(reference)
         if not reference_path.is_absolute():
             candidate = voice_dir / reference_path
@@ -520,7 +521,7 @@ def convert_vocals(
             )
             if ok:
                 return True, "RVC neural voice conversion"
-            cb(f"RVC fell back to DSP: {msg}", 0)
+            cb(f"RVC in-process conversion unavailable: {msg}", 0)
         except Exception:
             pass
 
@@ -538,7 +539,7 @@ def convert_vocals(
             cb("RVC sidecar conversion complete", 100)
             return True, "RVC neural voice conversion (sidecar)"
         except Exception as exc:
-            cb(f"RVC sidecar fell back to DSP: {exc}", 0)
+            cb(f"RVC sidecar conversion failed: {exc}", 0)
 
     if require_neural:
         raise RuntimeError(

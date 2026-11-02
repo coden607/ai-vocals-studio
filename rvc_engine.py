@@ -17,6 +17,7 @@ Usage:
 """
 from __future__ import annotations
 import threading
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -31,6 +32,16 @@ _rvc_module = None
 _rvc_lock   = threading.Lock()
 _rvc_ready  = threading.Event()
 HAS_RVC: bool = False
+
+
+def _hubert_checkpoint_context():
+    """Allow HuBERT's known fairseq metadata without disabling weights-only loading."""
+    try:
+        import torch
+        from fairseq.data.dictionary import Dictionary
+    except ImportError:
+        return nullcontext()
+    return torch.serialization.safe_globals([Dictionary])
 
 
 def _ensure_rvc(progress_cb: Optional[_ProgressCB] = None) -> bool:
@@ -152,12 +163,11 @@ class RvcEngine:
         try:
             with self._lock:
                 rvc_instance = _rvc_module(device=device)
-                rvc_instance.load_model(str(pth))
+                rvc_instance.load_model(str(pth), index_path=str(index) if index else '')
                 if index:
                     # Set index for retrieval-based feature matching
                     try:
                         rvc_instance.set_params(
-                            index_path=str(index),
                             index_rate=0.75,
                         )
                     except Exception:
@@ -219,7 +229,10 @@ class RvcEngine:
                         f0method=f0_method,
                         index_rate=index_rate,
                         filter_radius=3,
-                        resample_sr=44100,
+                        # rvc-python writes the native model rate in the WAV
+                        # header even when resampling internally. Keep native
+                        # samples to preserve both pitch and duration.
+                        resample_sr=0,
                         rms_mix_rate=0.25,
                         protect=protect,
                     )
@@ -227,16 +240,25 @@ class RvcEngine:
                     pass  # older rvc-python versions may not have set_params
 
                 cb('Converting voice…', 60)
-                self._rvc.infer_file(
-                    str(input_wav),
-                    str(output_wav),
-                )
+                with _hubert_checkpoint_context():
+                    self._rvc.infer_file(
+                        str(input_wav),
+                        str(output_wav),
+                    )
         except Exception as e:
             return False, f'RVC inference error: {e}'
 
         out = Path(output_wav)
         if not out.exists() or out.stat().st_size < 500:
             return False, 'RVC output file empty or missing'
+        try:
+            import numpy as np
+            import soundfile as sf
+            audio, _ = sf.read(out, dtype='float32')
+            if not audio.size or not np.isfinite(audio).all() or not np.any(audio):
+                return False, 'RVC output audio is empty, silent, or non-finite'
+        except Exception as exc:
+            return False, f'RVC output audio is not decodable: {exc}'
 
         cb('Done!', 100)
         return True, ''

@@ -1108,7 +1108,7 @@ class StudioPro:
             self._log(f'📂 Loaded: {Path(p).name}')
 
     def _replace_song(self):
-        """Replace a song's vocals with the selected trained clone."""
+        """Replace a song's vocals with the selected authorized neural clone."""
         song = self.audio_path_var.get().strip()
         name = self.model_var.get().strip()
         profile_path = self.MODELS / 'voices' / name / 'voice_profile.json'
@@ -1120,11 +1120,16 @@ class StudioPro:
                 'No Saved Clone',
                 'Select a saved voice clone from the model list first.')
             return
-        if not self._rvc_engine.can_infer(name):
+        from engine_planner import choose_best_plan
+        with open(profile_path) as handle:
+            profile = json.load(handle)
+        profile['voice_dir'] = str(profile_path.parent)
+        plan = choose_best_plan(profile=profile, mode='song', target_has_voice=True)
+        if plan['engine'] not in {'Seed-VC', 'RVC'}:
             messagebox.showerror(
-                'RVC Model Required',
-                'Indistinguishable song replacement requires a trained RVC model '
-                'for this voice. Import or train one, then try again.')
+                'Neural Voice Engine Required',
+                'Install Seed-VC for one-click reference cloning, or import/train '
+                'an authorized RVC model. Run ./install_voice_engines.sh, then try again.')
             return
         threading.Thread(target=self._replace_song_worker,
                          args=(song, name, profile_path), daemon=True).start()
@@ -1140,7 +1145,7 @@ class StudioPro:
                 profile = json.load(handle)
             profile['voice_dir'] = str(profile_path.parent)
             out_dir = self.OUTPUT / name / 'song_replacements' / time.strftime('%Y%m%d_%H%M%S')
-            self._badge('ENGINE: 🎵 Demucs + RVC', C['green'])
+            self._badge('ENGINE: 🎵 Demucs + neural voice conversion', C['green'])
             self._log(f'⚡ Replacing vocals in: {Path(song).name}')
             output, steps = change_song(
                 song, profile, out_dir, progress_cb=self._prog,
@@ -1877,8 +1882,8 @@ class StudioPro:
                 self.root.after(0, self._refresh_models)
                 self.root.after(0, lambda: messagebox.showinfo(
                     'Voice Created',
-                    f"{profile['name']} is ready for neural TTS.\n\n"
-                    'Train or import its RVC model for one-click song replacement.'))
+                    f"{profile['name']} is ready.\n\n"
+                    'Use Replace Song Vocals with Seed-VC, or train/import RVC for another neural option.'))
             except Exception as exc:
                 self._log(f'❌ Voice creation failed: {exc}')
                 self.root.after(0, lambda e=str(exc): messagebox.showerror(

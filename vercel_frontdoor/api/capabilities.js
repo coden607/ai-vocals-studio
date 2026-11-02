@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       { name: "Qwen3-TTS", mode: "local neural TTS" },
       { name: "XTTS v2", mode: "local neural TTS sidecar" },
       { name: "Demucs", mode: "neural vocal separation" },
+      { name: "Seed-VC", mode: "zero-shot speech, rap, and singing conversion" },
       { name: "RVC + Applio", mode: "GPU fine-tuning and vocal conversion" },
       { name: "WORLD/DSP", mode: "local fallback conversion" },
     ],
