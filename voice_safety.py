@@ -19,3 +19,5 @@ def validate_voice_clone_request(
         raise VoiceSafetyError(
             "Voice cloning requires explicit permission from the speaker or a valid license."
         )
+    if not str(speaker_name or "").strip():
+        raise VoiceSafetyError("A speaker or voice name is required before cloning.")
