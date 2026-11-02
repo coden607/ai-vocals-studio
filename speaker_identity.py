@@ -242,7 +242,7 @@ def precision_verdict(
     identity_backend: str | None = None,
 ) -> dict[str, Any]:
     neural = is_neural_engine(engine)
-    acoustic_only = "neural" not in str(identity_backend or "acoustic")
+    acoustic_only = any(part != "neural" for part in str(identity_backend or "acoustic").split("+"))
     reasons: list[str] = []
     if acoustic_only:
         reasons.append("Speaker score used an acoustic fingerprint. That is not a speaker verifier and cannot pass a clone gate.")
@@ -253,11 +253,11 @@ def precision_verdict(
         reasons.append(f"Speaker identity {identity:.3f} is below near-precision threshold {NEAR_PRECISION_IDENTITY:.2f}.")
     if reference_duration_s < MIN_REFERENCE_SECONDS_NEAR:
         reasons.append(f"Reference is {reference_duration_s:.1f}s; near-precision needs ≥{MIN_REFERENCE_SECONDS_NEAR:.0f}s of clean speech.")
-    if reference_quality and reference_quality < MIN_REFERENCE_QUALITY_NEAR:
+    if reference_quality < MIN_REFERENCE_QUALITY_NEAR:
         reasons.append(f"Reference quality {reference_quality:.2f} is below {MIN_REFERENCE_QUALITY_NEAR:.2f}.")
 
     near = neural and identity >= NEAR_PRECISION_IDENTITY and reference_duration_s >= MIN_REFERENCE_SECONDS_NEAR and (
-        not reference_quality or reference_quality >= MIN_REFERENCE_QUALITY_NEAR
+        reference_quality >= MIN_REFERENCE_QUALITY_NEAR
     )
     studio = neural and identity >= STUDIO_IDENTITY
     if near:

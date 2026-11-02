@@ -559,6 +559,24 @@ def combo(parent, var, values, width=22):
 # ═══════════════════════════════════════════════════════════════════
 #  MAIN APPLICATION
 # ═══════════════════════════════════════════════════════════════════
+def _modal_grab(dlg):
+    """Grab focus only after the dialog is mapped.
+
+    Tk 8.6 raises 'grab failed: window not viewable' if grab_set runs
+    before the window manager has mapped the toplevel.
+    """
+    dlg.update_idletasks()
+    try:
+        if not dlg.winfo_viewable():
+            dlg.wait_visibility()
+    except tk.TclError:
+        return
+    try:
+        dlg.grab_set()
+    except tk.TclError:
+        return
+
+
 class StudioPro:
     def __init__(self, root):
         self.root = root
@@ -1149,12 +1167,15 @@ class StudioPro:
             self._log(f'⚡ Replacing vocals in: {Path(song).name}')
             output, steps = change_song(
                 song, profile, out_dir, progress_cb=self._prog,
-                separation='demucs', require_neural=True)
+                separation='demucs', require_neural=True, quality_target='best')
             self.last_output = Path(output)
-            self._log(f'✅ Song replacement complete: {output}')
+            self._log(f"✅ {steps.get('quality_level', 'verified')} song replacement: {output}")
+            self._log(f"Voice similarity: {steps.get('speaker_identity')}; quality report: {steps.get('quality_report')}")
             self.root.after(0, lambda: self._out_wave.load(self.last_output))
             self.root.after(0, lambda: messagebox.showinfo(
-                'Song Ready', f'Converted song saved to:\n{output}'))
+                'Song Ready', f"Voice match: {steps.get('quality_level', 'verified').replace('_', ' ')} "
+                f"(similarity {steps.get('speaker_identity')}).\n"
+                f'The beat was adapted around your unchanged cloned vocal.\n\nSaved to:\n{output}'))
             self._prog(f"✅ COMPLETE ({steps.get('conversion', 'RVC')})", 100)
         except Exception as exc:
             self._prog('❌ Song replacement failed', 0)
@@ -1297,7 +1318,7 @@ class StudioPro:
         dlg.configure(bg=C['bg2'])
         dlg.geometry('680x440')
         dlg.transient(self.root)
-        dlg.grab_set()
+        _modal_grab(dlg)
         name_var = tk.StringVar()
         source_var = tk.StringVar()
         beat_var = tk.StringVar()
@@ -1496,26 +1517,32 @@ class StudioPro:
                     raise RuntimeError(f'SO-VITS: {err}')
             else:
                 saved_voice = self.MODELS/'voices'/name/'voice_profile.json'
-                if saved_voice.exists():
+                if saved_voice.exists() and mode != 'text':
                     raise RuntimeError(
                         'Audio-to-audio cloning needs a trained RVC or SO-VITS model. '
                         'This voice has a neural TTS reference only; use Text mode or '
                         'train/import an authorized RVC model.'
                     )
-                # ── DSP fallback ───────────────────────────────────
-                self._log('🟡 DSP fallback (no trained model)')
-                self._badge('ENGINE: 🎛️ DSP Fallback', C['orange'])
-                self._prog('🎵 Loading audio…',38)
-                audio=AudioSegment.from_file(tmp).normalize()
-                self._prog('✨ Applying voice profile…',58)
-                persona=dict(self._get_persona(name))
-                persona['pitch']  += self._fx['pitch'].get()
-                persona['speed']  *= self._fx['speed'].get()
-                persona['reverb']  = self._fx['reverb'].get() if self._fx['reverb'].get()!=0.05 else persona['reverb']
-                persona['gain']   += (self._fx['bass'].get()-1.0)*4
-                audio=self._transform(audio, persona)
-                self._prog('💾 Saving…',85)
-                audio.export(str(out), format='wav')
+                if mode == 'text' and saved_voice.exists():
+                    self._log('🟡 Text synth only (no trained RVC or SO-VITS model)')
+                    self._badge('ENGINE: 🎛️ gTTS', C['orange'])
+                    self._prog('💾 Saving speech…', 85)
+                    AudioSegment.from_file(tmp).export(str(out), format='wav')
+                else:
+                    # ── DSP fallback ───────────────────────────────────
+                    self._log('🟡 DSP fallback (no trained model)')
+                    self._badge('ENGINE: 🎛️ DSP Fallback', C['orange'])
+                    self._prog('🎵 Loading audio…',38)
+                    audio=AudioSegment.from_file(tmp).normalize()
+                    self._prog('✨ Applying voice profile…',58)
+                    persona=dict(self._get_persona(name))
+                    persona['pitch']  += self._fx['pitch'].get()
+                    persona['speed']  *= self._fx['speed'].get()
+                    persona['reverb']  = self._fx['reverb'].get() if self._fx['reverb'].get()!=0.05 else persona['reverb']
+                    persona['gain']   += (self._fx['bass'].get()-1.0)*4
+                    audio=self._transform(audio, persona)
+                    self._prog('💾 Saving…',85)
+                    audio.export(str(out), format='wav')
 
             if out.exists() and out.stat().st_size>500:
                 self.last_output=out
@@ -1820,7 +1847,7 @@ class StudioPro:
         dlg.configure(bg=C['bg2'])
         dlg.geometry('600x300')
         dlg.transient(self.root)
-        dlg.grab_set()
+        _modal_grab(dlg)
 
         name_var = tk.StringVar()
         source_var = tk.StringVar()
@@ -1993,7 +2020,7 @@ class StudioPro:
         dlg = tk.Toplevel(self.root)
         dlg.title('☁️ Kaggle Setup — One Time Only')
         dlg.configure(bg=C['bg2']); dlg.geometry('560x340')
-        dlg.transient(self.root); dlg.grab_set()
+        dlg.transient(self.root); _modal_grab(dlg)
 
         tk.Label(dlg, text='☁️  FREE GPU TRAINING SETUP', fg=C['cyan'],
                  bg=C['bg2'], font=FONT['h2']).pack(pady=(18,4))
@@ -2050,7 +2077,7 @@ class StudioPro:
         dlg.configure(bg=C['bg2'])
         dlg.geometry('500x420')
         dlg.transient(self.root)
-        dlg.grab_set()
+        _modal_grab(dlg)
         
         tk.Label(dlg, text='☁️  AUTO CLOUD TRAINING', fg=C['cyan'],
                 bg=C['bg2'], font=FONT['h2']).pack(pady=(20,10))
@@ -2425,7 +2452,7 @@ class StudioPro:
     def _new_model_dlg(self):
         dlg=tk.Toplevel(self.root); dlg.title('New Model')
         dlg.configure(bg=C['bg2']); dlg.geometry('420x200')
-        dlg.transient(self.root); dlg.grab_set()
+        dlg.transient(self.root); _modal_grab(dlg)
         tk.Label(dlg,text='MODEL NAME',fg=C['cyan'],bg=C['bg2'],font=FONT['h2']).pack(pady=(20,8))
         nv=tk.StringVar()
         e=tk.Entry(dlg,textvariable=nv,bg=C['bg3'],fg=C['white'],

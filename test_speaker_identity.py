@@ -41,3 +41,15 @@ if __name__ == "__main__":
     test_neural_can_meet_studio()
     print("All speaker identity contract tests passed successfully.")
 
+
+
+def test_near_precision_requires_measured_reference_quality():
+    verdict = precision_verdict(identity=.95, engine='RVC', reference_duration_s=20,
+        reference_quality=0, quality_target='pro', identity_backend='neural')
+    assert not verdict['meets_near_precision']
+
+
+def test_mixed_acoustic_neural_comparison_cannot_pass_clone_gate():
+    verdict=precision_verdict(identity=.95,engine='RVC',reference_duration_s=20,
+        reference_quality=.9,quality_target='pro',identity_backend='acoustic+neural')
+    assert not verdict['meets_quality_target']

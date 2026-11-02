@@ -148,13 +148,14 @@ def convert_target_audio(
             separation=separation,
             vocals_gain_db=vocals_gain_db,
             require_neural=quality_target in {"studio", "pro"},
+            quality_target=quality_target if quality_target in {"studio", "pro"} else None,
         )
         print(f"[ok] song conversion engine: {steps.get('conversion')}")
         score_path = output_dir / "converted_vocals.wav"
         if score_path.exists():
             score = print_accuracy_score(profile, score_path, engine=str(steps.get("conversion", "")), quality_target=quality_target)
             report = write_conversion_report(
-                output_dir / "quality_report.json",
+                output_dir / ("conversion_report.json" if steps.get("quality_report") else "quality_report.json"),
                 profile=profile,
                 source_audio=target_audio,
                 output_audio=out,
