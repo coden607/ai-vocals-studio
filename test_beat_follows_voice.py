@@ -241,8 +241,10 @@ def test_rvc_receives_the_pitch_decision_instead_of_a_hardcoded_zero(tmp_path, m
         def __init__(self, models_dir):
             captured["models_dir"] = models_dir
 
-        def convert(self, name, src, dst, pitch_shift=0, progress_cb=None):
+        def convert(self, name, src, dst, pitch_shift=0, progress_cb=None,
+                    index_rate=None):
             captured["pitch_shift"] = pitch_shift
+            captured["index_rate"] = index_rate
             sf.write(Path(dst), np.zeros(1000, dtype=np.float32), 22050)
             return True, "RVC"
 
@@ -263,6 +265,8 @@ def test_rvc_receives_the_pitch_decision_instead_of_a_hardcoded_zero(tmp_path, m
     assert ok and "RVC" in msg
     # Rounded to whole semitones for RVC, but no longer pinned to zero.
     assert captured["pitch_shift"] == -4
+    # The RVC index rate (main-side feature) is plumbed through with its default.
+    assert captured["index_rate"] == 0.75
 
 
 def test_a_clamped_transposition_is_reported_not_hidden(tmp_path, monkeypatch):
