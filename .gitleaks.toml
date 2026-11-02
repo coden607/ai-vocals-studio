@@ -7,7 +7,7 @@ useDefault = true
 [[rules]]
 id = "twilio-account-sid"
 description = "Twilio Account SID"
-regex = '''AC[a-f0-9]{32}'''
+regex = '''(?i)\bAC[a-f0-9]{32}\b'''
 tags = ["key", "Twilio"]
 
 [rules.allowlist]
