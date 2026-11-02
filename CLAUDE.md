@@ -68,3 +68,58 @@ Work on a feature branch and open a PR into `main`. Commits end with the attribu
 ## Definition of done
 
 Implementation, tests, docs and runtime config agree, and a real smoke run on the target runtime passed. If something was not run, say "unverified".
+
+### Model Discovery
+
+`refresh_models()` in both apps scans `models/` for:
+- `.pth` files directly in `models/`
+- `model.pth` inside subdirectories (e.g., `models/Pacaveli/model.pth`)
+
+The model name shown in the UI is the directory name or file stem.
+
+### Voice Persona System (app_minimal.py)
+
+`app_minimal.py` uses a `voice_personas` dict (not actual ML models) to simulate voice transformation via pydub:
+- Pitch shift (frame rate manipulation)
+- Speed change (`speedup()`)
+- Simple reverb (echo overlay)
+- EQ gain simulation
+
+Model names are matched against persona keys (`"2pac"`, `"male"`, `"female"`, `"robot"`, `"default"`).
+
+## Song conversion contract (`song_converter.py`)
+
+`change_song()` is the one-call production path, and its order is fixed:
+
+1. **Separate first, always.** Demucs isolates vocals and instrumental before
+   anything else. With `require_neural=True` it fails closed rather than using
+   the centre-channel fallback.
+2. **Decide the key once.** `voice_shift_semitones()` measures the interval
+   between the separated performance and the target voice's natural register,
+   clamped to `MAX_KEY_SHIFT_SEMITONES` (7). A clamp is reported in `steps`
+   as `key_shift_clamped`; an unmeasurable voice returns 0.0 so nothing is
+   transposed on a guess.
+3. **Move the performance into the voice's register** (`move_vocal_into_voice_register`)
+   BEFORE conversion, so Seed-VC, RVC and the DSP fallback all convert audio
+   that is already in range. `convert_vocals(..., pitch_steps=0.0)` then
+   guarantees no engine applies a second shift.
+4. **The beat follows the voice** (`match_instrumental_to_voice`): the
+   separated instrumental is transposed by the SAME interval, so vocal and
+   beat land in one key. Pass `match_beat_to_voice=False` to keep the original
+   key instead.
+5. **Remix.** The instrumental stays the timing clock, so tempo, bar lines and
+   groove are untouched — only the key moves.
+
+**Why this order matters:** the vocal used to be pitch-shifted into the voice's
+register while the instrumental stayed in the original key, so output was
+key-mismatched; and RVC was called with a hardcoded `pitch_shift=0`, forcing
+every neural render into the source singer's key. Both are fixed; the interval
+applied to the vocal and to the beat must stay equal.
+
+`pitch_shift_semitones()` preserves duration (phase vocoder, librosa when
+installed, numpy/scipy fallback otherwise — accurate to ~1.5 cents). Guard
+tests: `test_beat_follows_voice.py`.
+
+## Shared agent skills
+
+Read and follow `AGENTS.md` before planning, editing, testing or committing. Use the complete canonical https://github.com/coden607/skills library under its shared-skills policy.
