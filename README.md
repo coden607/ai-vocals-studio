@@ -375,3 +375,33 @@ similarity was 0.7794 (Studio, below the 0.82 near-precision threshold), pitch
 correlation 0.993, median voiced pitch error 10 cents, duration drift 20 ms, and
 mix peak 0.631. The cloned vocal remained unchanged during remix. These are
 results for this short fixture, not guarantees for arbitrary songs or voices.
+
+### One-click voice-first quality selection
+
+Choose your saved authorized voice and song, then click **Replace Song Vocals**.
+The desktop action measures up to three RVC retrieval blends for that same voice
+and returns the strongest passing neural match. It stops early at near-precision.
+A Studio result is labelled Studio; the app does not call it indistinguishable.
+Clipped, silent, non-finite, timing-drifted, or substantially pitch-altered
+candidates are rejected. Pitch analysis covers up to 15 seconds around the
+source vocal's strongest region. The selected vocal is never pitch-shifted,
+time-stretched, normalized, or polished to fit the instrumental during mixing.
+Only the instrumental is resampled, duration-conformed, ducked, and attenuated
+for headroom. The original song's instrumental already shares its melody's key.
+
+Candidate settings, measured identity/pitch/timing, and reasons are retained in
+`quality_report.json`, including on failure. The app shows the achieved quality
+and similarity. An authorized trained model and clean reference still determine
+how closely the output can match a speaker. No numerical threshold guarantees
+perceptual indistinguishability.
+
+CLI Studio/Pro song conversion now checks vocal quality before remix. Explicit
+`--quality-target pro` still fails closed unless near-precision passes; the
+single desktop action selects the best verified Studio-or-better candidate.
+
+For verified CLI song renders, `quality_report.json` now retains the candidate
+selection evidence; the existing conversion summary is written separately to
+`conversion_report.json`. Draft output keeps its previous report path.
+A measured three-candidate CPU search on the licensed p226 fixture took 173
+seconds and selected similarity 0.7887 over its first candidate's 0.7777.
+This is still Studio, below the 0.82 near-precision target.

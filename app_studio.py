@@ -1149,12 +1149,15 @@ class StudioPro:
             self._log(f'⚡ Replacing vocals in: {Path(song).name}')
             output, steps = change_song(
                 song, profile, out_dir, progress_cb=self._prog,
-                separation='demucs', require_neural=True)
+                separation='demucs', require_neural=True, quality_target='best')
             self.last_output = Path(output)
-            self._log(f'✅ Song replacement complete: {output}')
+            self._log(f"✅ {steps.get('quality_level', 'verified')} song replacement: {output}")
+            self._log(f"Voice similarity: {steps.get('speaker_identity')}; quality report: {steps.get('quality_report')}")
             self.root.after(0, lambda: self._out_wave.load(self.last_output))
             self.root.after(0, lambda: messagebox.showinfo(
-                'Song Ready', f'Converted song saved to:\n{output}'))
+                'Song Ready', f"Voice match: {steps.get('quality_level', 'verified').replace('_', ' ')} "
+                f"(similarity {steps.get('speaker_identity')}).\n"
+                f'The beat was adapted around your unchanged cloned vocal.\n\nSaved to:\n{output}'))
             self._prog(f"✅ COMPLETE ({steps.get('conversion', 'RVC')})", 100)
         except Exception as exc:
             self._prog('❌ Song replacement failed', 0)

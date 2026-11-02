@@ -488,6 +488,9 @@ def convert_vocals(
     # is enough. This is the preferred zero-shot path for rap/singing.
     reference = profile.get("reference") or profile.get("reference_audio")
     prefer_rvc = str(profile.get("preferred_engine") or "").upper() == "RVC"
+    index_rate = float(profile.get("rvc_index_rate", .75))
+    if not np.isfinite(index_rate) or not 0 <= index_rate <= 1:
+        raise ValueError("RVC index rate must be between 0 and 1")
     if reference and not prefer_rvc:
         reference_path = Path(reference)
         if not reference_path.is_absolute():
@@ -517,7 +520,7 @@ def convert_vocals(
             engine = RvcEngine(str(voice_dir.parent))
             ok, msg = engine.convert(
                 name, vocals_path, out_path,
-                pitch_shift=0, progress_cb=cb,
+                pitch_shift=0, index_rate=index_rate, progress_cb=cb,
             )
             if ok:
                 return True, "RVC neural voice conversion"
@@ -535,6 +538,7 @@ def convert_vocals(
                 "--input", str(vocals_path),
                 "--output", str(out_path),
                 "--models-dir", str(voice_dir.parent),
+                "--index-rate", str(index_rate),
             ])
             cb("RVC sidecar conversion complete", 100)
             return True, "RVC neural voice conversion (sidecar)"
@@ -827,6 +831,7 @@ def change_song(
     require_neural: bool = False,
     source_matched_export: bool = False,
     preserve_vocals: bool = True,
+    quality_target: Optional[str] = None,
 ) -> tuple[Optional[str], dict]:
     """
     One-call production contract: neural-separate the song first, convert only
@@ -858,8 +863,19 @@ def change_song(
 
     cb("Converting vocals to the cloned voice...", 45)
     conv_vocals = out_dir / "converted_vocals.wav"
-    ok, msg = convert_vocals(vocals, profile, conv_vocals, out_dir, cb,
-                             require_neural=require_neural)
+    if quality_target is not None:
+        if not preserve_vocals:
+            raise ValueError("Verified song replacement requires unchanged cloned vocals")
+        from song_quality import select_verified_vocal
+        _, quality = select_verified_vocal(vocals, profile, out_dir, convert_vocals,
+                                          quality_target=quality_target, progress_cb=cb)
+        ok, msg = True, quality['selected']['engine']
+        steps['quality_report'] = str(out_dir / 'quality_report.json')
+        steps['quality_level'] = quality['verdict']['level']
+        steps['speaker_identity'] = str(quality['selected']['identity']['identity'])
+    else:
+        ok, msg = convert_vocals(vocals, profile, conv_vocals, out_dir, cb,
+                                 require_neural=require_neural)
     steps["conversion"] = msg
     if not ok:
         raise RuntimeError(f"Vocal conversion failed: {msg}")
