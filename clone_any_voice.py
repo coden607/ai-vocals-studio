@@ -172,10 +172,10 @@ def convert_target_audio(
     has_voice = voice_fraction >= 0.08
     plan = choose_best_plan(profile=profile, mode=plan_mode, target_has_voice=has_voice)
     print(f"[ok] selected engine plan: {plan['engine']} ({plan['confidence']}% confidence)")
-    if quality_target == "pro" and plan.get("engine") != "RVC":
+    if quality_target == "pro" and plan.get("engine") not in {"Seed-VC", "RVC"}:
         raise RuntimeError(
-            "Pro-match clip conversion requires a trained RVC model for this voice. "
-            "Add rvc_model.pth to the voice profile directory or lower quality target to Studio/Draft."
+            "Pro-match clip conversion requires Seed-VC or a trained RVC model for this voice. "
+            "Configure Seed-VC, add rvc_model.pth to the voice profile directory, or lower the quality target."
         )
     if not has_voice:
         raise ValueError(

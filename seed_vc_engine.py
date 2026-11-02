@@ -11,15 +11,29 @@ import os
 import shutil
 import subprocess
 import sys
+from uuid import uuid4
 from pathlib import Path
 from typing import Callable, Optional
 
 ProgressCB = Callable[[str, int], None]
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _seed_vc_root() -> Path:
+    configured = os.environ.get("SEED_VC_DIR", "").strip()
+    return Path(configured).expanduser() if configured else PROJECT_ROOT / ".engines" / "seed-vc"
+
+
+def _seed_vc_python() -> str:
+    configured = os.environ.get("SEED_VC_PYTHON", "").strip()
+    if configured:
+        return configured
+    bundled = PROJECT_ROOT / "venv_seed_vc" / "bin" / "python"
+    return str(bundled) if bundled.is_file() else sys.executable
 
 
 def seed_vc_available() -> bool:
-    root = Path(os.environ.get("SEED_VC_DIR", "")).expanduser()
-    return bool(str(root) and (root / "inference.py").is_file())
+    return (_seed_vc_root() / "inference.py").is_file()
 
 
 def convert_seed_vc(
@@ -32,13 +46,10 @@ def convert_seed_vc(
     progress_cb: Optional[ProgressCB] = None,
 ) -> str:
     """Run zero-shot Seed-VC and normalize its generated WAV to output_audio."""
-    root_raw = os.environ.get("SEED_VC_DIR", "").strip()
-    if not root_raw:
-        raise RuntimeError("SEED_VC_DIR is not configured")
-    root = Path(root_raw).expanduser().resolve()
+    root = _seed_vc_root().resolve()
     inference = root / "inference.py"
     if not inference.is_file():
-        raise RuntimeError(f"Seed-VC inference.py not found under {root}")
+        raise RuntimeError(f"Seed-VC inference.py not found under {root}; run ./install_voice_engines.sh")
 
     source = Path(source_audio).resolve()
     reference = Path(reference_audio).resolve()
@@ -46,13 +57,12 @@ def convert_seed_vc(
         raise RuntimeError("Seed-VC requires existing source and reference audio")
 
     out = Path(output_audio).resolve()
-    run_dir = out.parent / ".seed_vc"
+    run_dir = out.parent / ".seed_vc" / uuid4().hex
     run_dir.mkdir(parents=True, exist_ok=True)
-    before = {p.resolve() for p in run_dir.glob("*.wav")}
 
     cb = progress_cb or (lambda _m, _p: None)
     cb("Running Seed-VC zero-shot voice conversion on CPU/GPU auto-device...", 25)
-    python = os.environ.get("SEED_VC_PYTHON", sys.executable)
+    python = _seed_vc_python()
     cmd = [
         python, str(inference),
         "--source", str(source),
@@ -76,10 +86,8 @@ def convert_seed_vc(
 
     candidates = [
         p.resolve() for p in run_dir.glob("*.wav")
-        if p.resolve() not in before and p.stat().st_size > 1024
+        if p.stat().st_size > 1024
     ]
-    if not candidates:
-        candidates = [p.resolve() for p in run_dir.glob("*.wav") if p.stat().st_size > 1024]
     if not candidates:
         raise RuntimeError("Seed-VC completed but produced no WAV output")
     generated = max(candidates, key=lambda p: p.stat().st_mtime_ns)

@@ -1,28 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# AI Vocals Studio - One Click Launcher
-echo "🎤 Starting AI Vocals Studio..."
+cd "$(dirname "$(readlink -f "$0")")"
 
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    echo "📦 Creating virtual environment..."
-    python3 -m venv venv
+if [ -x .venv/bin/python ]; then
+  PYTHON=.venv/bin/python
+elif [ -x venv/bin/python ]; then
+  PYTHON=venv/bin/python
+else
+  echo "AI Vocals Studio is not installed. Run ./install.sh first." >&2
+  exit 1
 fi
 
-# Activate virtual environment
-echo "⚡ Activating virtual environment..."
-source venv/bin/activate
-
-# Install dependencies if needed
-echo "🔧 Checking dependencies..."
-pip install -q gtts demucs so-vits-svc-fork librosa numpy soundfile pydub qwen-tts
-
-# Run the application
-echo "🚀 Launching AI Vocals Studio..."
-python app_studio.py
-
-# Keep terminal open if there's an error
-if [ $? -ne 0 ]; then
-    echo "❌ Error occurred. Press any key to exit..."
-    read -n 1
+if ! "$PYTHON" -c 'import soundfile, librosa, demucs' >/dev/null 2>&1; then
+  echo "The audio runtime is incomplete or uses an unsupported Python. Run ./install_voice_engines.sh." >&2
+  exit 1
 fi
+
+exec "$PYTHON" app_studio.py

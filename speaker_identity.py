@@ -27,6 +27,7 @@ MIN_REFERENCE_SECONDS_NEAR = 15.0
 MIN_REFERENCE_QUALITY_NEAR = 0.55
 NEURAL_ENGINES = {
     "RVC",
+    "Seed-VC",
     "ElevenLabs",
     "Qwen3-TTS",
     "XTTS v2",
@@ -182,6 +183,8 @@ def _engine_family(engine: str | None) -> str:
     # breach the fail-closed contract.
     if "DSP" in text or "WORLD" in text or "gTTS" in text:
         return "WORLD/DSP"
+    if "Seed-VC" in text:
+        return "Seed-VC"
     if re.search(r"\bRVC\b", text):
         return "RVC"
     if "ElevenLabs" in text:

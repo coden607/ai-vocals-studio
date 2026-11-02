@@ -59,6 +59,7 @@ def test_import_rvc_model_registers_profile_and_optional_index(tmp_path: Path) -
     assert (voice_dir / "rvc_model.pth").exists()
     assert (voice_dir / "rvc_model.index").exists()
     assert profile["rvc_available"] is True
+    assert profile["preferred_engine"] == "RVC"
     assert profile["methods"]["rvc"] is True
     saved = json.loads(profile_path.read_text())
     assert saved["rvc_model"] == "rvc_model.pth"

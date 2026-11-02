@@ -129,6 +129,7 @@ def import_rvc_model(
     methods.update({"dsp": True, "rvc": True})
     profile.update({
         "rvc_available": True,
+        "preferred_engine": "RVC",
         "rvc_model": target_model.name,
         "rvc_index": target_index.name if target_index else None,
         "methods": methods,

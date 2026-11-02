@@ -108,6 +108,12 @@ def get_engine_status(profile: dict[str, Any] | None = None) -> list[dict[str, A
     if not xtts_ok:
         xtts_ok, xtts_note = _sidecar_importable("TTS")
 
+    from seed_vc_engine import seed_vc_available
+
+    seed_vc_installed = seed_vc_available()
+    reference = (profile or {}).get("reference") or (profile or {}).get("reference_audio")
+    seed_vc_configured = bool(reference and Path(reference).is_file())
+
     has_rvc_model = _rvc_model_present(profile or {}) if profile else False
     if profile and not has_rvc_model:
         rvc_ok = _importable("rvc_python")[0] or _sidecar_python("rvc_python") is not None
@@ -119,6 +125,16 @@ def get_engine_status(profile: dict[str, Any] | None = None) -> list[dict[str, A
     eleven_configured = eleven_ok and _has_api_key()
 
     return [
+        {
+            "name": "Seed-VC",
+            "available": bool(seed_vc_installed and seed_vc_configured),
+            "installed": seed_vc_installed,
+            "configured": seed_vc_configured,
+            "score": 96,
+            "best_for": "zero-shot speech, rap, and singing conversion",
+            "note": "authorized reference ready" if seed_vc_configured else "requires reference audio",
+            "detail": "configured" if seed_vc_installed else "run ./install_voice_engines.sh to install Seed-VC",
+        },
         {
             "name": "RVC",
             "available": bool(rvc_ok and has_rvc_model),
@@ -222,7 +238,9 @@ def choose_best_plan(
     reference_conf = estimate_reference_confidence(profile)
 
     if mode in {"song", "clip"} and target_has_voice:
-        order = ["RVC", "WORLD/DSP"]
+        order = ["Seed-VC", "RVC", "WORLD/DSP"]
+        if str(profile.get("preferred_engine") or "").upper() == "RVC":
+            order = ["RVC", "Seed-VC", "WORLD/DSP"]
     elif mode == "bed":
         order = ["Qwen3-TTS", "XTTS v2", "WORLD/DSP"]
         if os.environ.get("ALLOW_PAID_ENGINES", "").lower() in {"1", "true", "yes"}:

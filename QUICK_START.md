@@ -1,64 +1,53 @@
-# 🚀 Quick Start Guide
+# Quick Start
 
-## One-Click Installation & Launch
+## Install once
 
-### Method 1: Full Installation (Recommended)
 ```bash
 ./install.sh
 ```
-This will:
-- ✅ Create virtual environment
-- ✅ Install all dependencies
-- ✅ Create desktop launcher
-- ✅ Set up all folders
 
-### Method 2: Quick Launch (Already Installed)
+The installer uses Python 3.12 for the app and isolated compatible runtimes for [Demucs](https://github.com/facebookresearch/demucs), [Seed-VC](https://github.com/Plachtaa/seed-vc), XTTS, and RVC. It also installs neural speaker verification. The first neural conversion downloads model weights; later runs reuse the local cache.
+
+Check what this machine can actually run:
+
 ```bash
-./run.sh
+.venv/bin/python scripts/doctor.py
 ```
 
-### Method 3: Manual Launch
+## Desktop: clone and replace a song
+
+1. Launch with `./run.sh`.
+2. Create a saved voice profile from at least 15–20 seconds of clean, authorized speech or vocals. Confirm that you own the voice or have explicit permission/a valid license.
+3. Open **Generate**, select that voice, and choose the source song in **Audio Input**.
+4. Click **Replace Song Vocals**.
+
+With Seed-VC installed, no per-voice training is needed. The app runs Demucs separation, neural conversion of only the isolated vocal, and a protected remix that leaves the cloned vocal samples unchanged. If no neural converter is available, it stops rather than presenting DSP as a clone.
+
+## CLI: one command from reference to finished song
+
 ```bash
-python app_modern.py
+.venv/bin/python clone_any_voice.py \
+  --voice-source /path/to/authorized-reference.wav \
+  --voice-source-type speech \
+  --name my_voice \
+  --target-audio /path/to/song.wav \
+  --target-type song \
+  --quality-target studio \
+  --output-dir output/my_voice_song \
+  --i-have-permission
 ```
 
-## 🖥️ Desktop Launcher
-After installation, you'll have a desktop shortcut called "AI Vocals Studio" - just double-click it!
+Use `--voice-source-type song` when the reference itself needs Demucs vocal isolation. Studio requires neural conversion and a passing neural speaker-identity score; lower-quality DSP output is never substituted silently.
 
-## 📁 What You Need to Know
+## Separate stems only
 
-### First Time Setup:
-1. **Run the installer**: `./install.sh`
-2. **Add training data**: Go to Training Data tab → Import Entire Folder
-3. **Download a model**: Go to Models tab → Select and download a pre-trained model
-4. **Load the model**: Select your downloaded model and click "Load Selected Model"
-5. **Generate vocals**: Go to Generate tab → Enter text or select audio → Generate
-
-### Folder Structure:
-```
-ai-vocals-studio/
-├── 📁 dataset/     # Put your training audio files here
-├── 📁 models/      # AI models are stored here
-├── 📁 outputs/     # Generated vocals appear here
-├── 🚀 run.sh       # Quick launcher
-├── 📦 install.sh   # Full installer
-└── 🎤 app_modern.py # Main application
+```bash
+.venv/bin/python song_pipeline_cli.py separate /path/to/song.wav \
+  --output-dir output/stems --method demucs --require-neural
 ```
 
-## 🎵 Supported Audio Formats
-- **WAV, MP3, FLAC, OGG, M4A, AIFF, AAC**
+This writes `vocals.wav` and `instrumental.wav`.
 
-## ⚡ Pro Tips
-- **Folder Import**: Use "Import Entire Folder" to add hundreds of audio files at once
-- **Model Downloads**: Start with pre-trained models for instant results
-- **Flow Alignment**: Enable for rap vocals to improve rhythm
-- **Output Format**: Use WAV for quality, MP3 for smaller files
+## Optional trained RVC path
 
-## 🔧 Troubleshooting
-- **Dependencies not found?** Run `./install.sh` again
-- **Permission denied?** Run `chmod +x run.sh install.sh`
-- **Python not found?** Install Python 3 from your package manager
-
----
-
-🎤 **Ready to create amazing AI vocals!**
+For a voice-specific RVC checkpoint, prepare or import it with `rvc_training_cli.py --i-have-permission`. Training requires clean authorized audio and a configured local/Kaggle GPU trainer; a reference-only profile is not represented as a trained checkpoint.

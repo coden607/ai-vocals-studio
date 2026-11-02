@@ -92,6 +92,9 @@ def probe_engines() -> list[tuple[str, str, str]]:
     for label, module, note in engines:
         ok = _findable(module)
         rows.append((label, f"importable ({note})" if ok else f"not installed ({note})", "ok" if ok else "warn"))
+    seed_root = Path(os.environ.get("SEED_VC_DIR", ROOT / ".engines" / "seed-vc")).expanduser()
+    seed_ok = (seed_root / "inference.py").is_file()
+    rows.append(("Seed-VC", f"configured at {seed_root}" if seed_ok else "not installed (zero-shot speech/singing conversion)", "ok" if seed_ok else "warn"))
     return rows
 
 
@@ -153,8 +156,8 @@ def main() -> int:
     print("\n## Notes")
     print("  - The studio CONTRACT only counts resemblyzer speaker identity as accuracy;")
     print("    WORLD/DSP/gTTS can never pass the studio gate (speaker_identity.py).")
-    print("  - XTTS/RVC install into py3.10/3.11 sidecar venvs (install_voice_engines.sh);")
-    print("    this table only reports THIS interpreter. Sidecar health is checked by")
+    print("  - Seed-VC/XTTS/RVC install into separate py3.10/3.11 runtimes;")
+    print("    Python import rows report THIS interpreter. Sidecar health is checked by")
     print("    engine_planner._sidecar_importable() at plan time.")
     print("  - No weights are shipped in git (DMCA + size). Real checkpoints are")
     print("    user-provided or cloud-trained (Kaggle/Colab) and imported locally.")
@@ -168,7 +171,9 @@ def main() -> int:
             ("resemblyzer", "resemblyzer"), ("demucs", "demucs"), ("torch", "torch"),
             ("elevenlabs", "elevenlabs"), ("qwen_tts", "qwen_tts"), ("TTS", "TTS"),
             ("rvc_python", "rvc_python"),
-        ]},
+        ]} | {
+            "seed_vc": (Path(os.environ.get("SEED_VC_DIR", ROOT / ".engines" / "seed-vc")).expanduser() / "inference.py").is_file(),
+        },
         "elevenlabs_key": bool(os.environ.get("ELEVENLABS_API_KEY", "").strip()),
     }
     print("\n## JSON")
