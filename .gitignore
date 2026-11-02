@@ -1,3 +1,4 @@
+# .gitignore (full file with added entries)
 # Python
 __pycache__/
 *.py[cod]
@@ -95,3 +96,14 @@ dataset/
 
 # Built voice profiles — contain personal reference audio + embeddings
 models/voices/
+
+# Voice cloning model checkpoints – large binaries, keep local only
+external/models/**
+# Temporary test artifacts
+.tmp_voice_test/
+
+# Vendored external dependency clone — local checkout of openmirlab/demucs-infer;
+# the circular-import overlay is preserved in external/demucs-infer-circular-import.patch
+external/demucs-infer/
+# Backup artifacts
+*.bak.*

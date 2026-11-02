@@ -1,0 +1,31 @@
+diff --git a/demucs_infer/transformer.py b/demucs_infer/transformer.py
+index 7cf7a11..8453017 100644
+--- a/demucs_infer/transformer.py
++++ b/demucs_infer/transformer.py
+@@ -13,7 +13,9 @@ Largest file in the package (840 lines): positional embeddings (sinusoidal,
+ file: internals intentionally untouched by this campaign -- see demucs.py's
+ header for why (pickled checkpoint args/kwargs pin the current layout).
+ 
+-Reads: compat (import side effect only, see compat.py's header)
++Reads: compat (lazily, inside create_sin_embedding -- a module-level import
++would close a demucs -> transformer -> compat -> hdemucs -> demucs cycle;
++the sys.modules aliasing side effect still runs first via __init__.py)
+ """
+ 
+ import random
+@@ -25,7 +27,6 @@ import torch.nn.functional as F
+ import numpy as np
+ import math
+ from einops import rearrange
+-from . import compat
+ 
+ 
+ def create_sin_embedding(
+@@ -96,6 +97,7 @@ def create_sin_embedding_cape(
+ ):
+     # We aim for TBC format
+     assert dim % 2 == 0
++    from . import compat  # lazy: module-level import creates a demucs -> transformer -> compat -> hdemucs -> demucs cycle
+     pos = 1.0 * compat.get_torch_arange(length, device=device).view(-1, 1, 1)  # (length, 1, 1)
+     pos = pos.repeat(1, batch_size, 1)  # (length, batch_size, 1)
+     if mean_normalize:
