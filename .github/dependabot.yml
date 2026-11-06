@@ -1,20 +1,18 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/vercel_frontdoor"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-    commit-message:
-      prefix: "deps"
+  # Frontdoor handlers use Node built-ins and have no package.json/lockfile.
+  # Add npm updates only when that surface owns an npm dependency manifest.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
+    # These caps protect the fairseq/HuBERT checkpoint loader in the RVC
+    # sidecar. Raise them only with a real sidecar inference validation.
+    ignore:
+      - dependency-name: "torch"
+        versions: [">=2.6"]
+      - dependency-name: "torchaudio"
+        versions: [">=2.6"]
     commit-message:
       prefix: "deps"
