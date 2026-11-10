@@ -86,6 +86,20 @@ Worker setup:
 scripts/run_supabase_worker.sh
 ```
 
+The launcher uses the installer's `.venv/bin/python`, accepts `MAIN_PY` for a
+custom runtime, and retains `venv/bin/python` compatibility. For a queue stored
+entirely on the VPS, unset the two Supabase variables and set
+`LOCAL_STORAGE_DIR` to the same directory used by the self-hosted frontdoor.
+This starts a worker; real neural rendering still requires installed engines,
+cached weights, and an authorized reference or RVC model.
+
+The experimental `scripts/voice_swap.py` package demo is separate from the
+production song pipeline. Its Coqui path resynthesizes speech and its Qwen3
+adapter is a stub; neither establishes singing or beat-preservation quality.
+Backend errors now propagate rather than silently substituting Silero, which
+ignores the reference voice. Use `clone_any_voice.py --target-type song` for
+the Demucs → Seed-VC/RVC → measured-quality → remix workflow.
+
 For the one-click RVC training task, install a compatible trainer on the
 worker and set its executable path before starting the worker:
 
