@@ -9,6 +9,13 @@ Python compilation, shell syntax, whitespace checks, CLI help and wheel build pa
 The wheel contains the voice_cloning subpackage. GitHub CI and production deployment
 must also pass on the final commit before claiming publication is verified.
 
+A fresh licensed VCTK p226 smoke through `clone_any_voice.py`, with explicit
+permission and the studio quality target, completed Demucs separation, real RVC
+sidecar conversion and protected remix. Neural speaker identity was 0.7574 and
+the verdict was Studio, below the 0.82 near-precision threshold. This short local
+fixture does not establish public-worker availability or arbitrary-song quality.
+The real worker launcher also started successfully against an empty local queue.
+
 Dependency decisions:
 
 - Retain Torch and Torchaudio below 2.6 in the RVC sidecar. PRs #73 and #74
