@@ -2,7 +2,7 @@
 # Kept separate from XTTS because rvc-python pins numpy<=1.23.5.
 
 rvc-python>=0.1.5
-setuptools<81  # fairseq and pyworld still require pkg_resources
+setuptools<85  # fairseq and pyworld still require pkg_resources
 faiss-cpu
 ffmpeg-python
 torch<2.6  # fairseq hubert checkpoint needs pre-2.6 torch.load default

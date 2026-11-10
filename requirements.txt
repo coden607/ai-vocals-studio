@@ -3,7 +3,7 @@
 
 # Core dependencies
 -c constraints_main.txt
-setuptools<81
+setuptools<85
 resemblyzer>=0.1.4
 # tkinter - built into Python, not installable via pip
 gTTS>=2.5.4
