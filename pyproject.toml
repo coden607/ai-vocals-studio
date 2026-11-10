@@ -25,5 +25,5 @@ dependencies = [
 
 [project.optional-dependencies]# Web UI extra
 webui = ["fastapi", "uvicorn[standard]"]
-[tool.setuptools]
-packages = ["ai_vocals_studio"]
+[tool.setuptools.packages.find]
+include = ["ai_vocals_studio*"]

@@ -3,6 +3,9 @@
 Voice‑Swap Utility
 ==================
 
+Experimental speech-resynthesis demo, without song identity or timing gates.
+For singing/rap use ``clone_any_voice.py --target-type song`` instead.
+
 Take a *source* song and replace its vocals with a cloned voice
 derived from a *reference* song.  The workflow is:
 
@@ -40,7 +43,6 @@ if str(repo_root) not in sys.path:
 from song_converter import separate_vocals
 from ai_vocals_studio.voice_cloning import clone_voice
 import numpy as np
-import soundfile as sf
 import soundfile as sf
 
 def _mix_tracks(vocals: np.ndarray, instrumental: np.ndarray) -> np.ndarray:
@@ -119,7 +121,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--backend",
         default="coqui",
-        choices=["coqui", "silero", "qwen3"],
+        choices=["coqui", "qwen3"],
         help="Voice‑cloning backend (default: coqui).",
     )
     args = parser.parse_args()
