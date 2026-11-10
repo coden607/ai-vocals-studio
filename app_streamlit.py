@@ -322,7 +322,9 @@ def main():
     st.markdown("<h2 style='text-align: center; color: #00ff88;'>Consent-Based Voice Cloning & Generation</h2>", unsafe_allow_html=True)
     st.warning(
         "Permission required: only upload or clone a voice you own, created yourself, "
-        "or have explicit written permission/license to use."
+        "or have explicit written permission/license to use. Do not clone artists, "
+        "celebrities, public figures, private people, or copyrighted recordings "
+        "without authorization."
     )
 
     # Sidebar
