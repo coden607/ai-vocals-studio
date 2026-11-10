@@ -422,3 +422,11 @@ selection evidence; the existing conversion summary is written separately to
 A measured three-candidate CPU search on the licensed p226 fixture took 173
 seconds and selected similarity 0.7887 over its first candidate's 0.7777.
 This is still Studio, below the 0.82 near-precision target.
+
+The engine installer upgrades the main environment eagerly and runs `pip check`
+before proceeding. Main requirements include the neural identity scorer
+(resemblyzer) and constrain setuptools below 81 for upstream pkg_resources
+imports. The isolated RVC environment retains pip below 24.1 because its pinned
+OmegaConf 2.0.6 metadata is rejected by newer pip. The doctor probes real imports
+in subprocesses, so an installed package with broken native dependencies is
+reported as unavailable. These compatibility limits are not latest-version claims.

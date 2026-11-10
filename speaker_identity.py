@@ -7,6 +7,7 @@ DSP fallbacks are never studio or near-precision.
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -136,6 +137,17 @@ def acoustic_embedding(y: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
 
 def _neural_embedding(path: str | Path) -> Optional[np.ndarray]:
     try:
+        # resemblyzer and webrtcvad still import deprecated scipy/pkg_resources paths.
+        warnings.filterwarnings(
+            "ignore",
+            message="Please import `binary_dilation`",
+            category=DeprecationWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="pkg_resources is deprecated as an API",
+            category=DeprecationWarning,
+        )
         from resemblyzer import VoiceEncoder, preprocess_wav  # type: ignore
 
         encoder = VoiceEncoder()

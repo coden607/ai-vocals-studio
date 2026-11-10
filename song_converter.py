@@ -23,6 +23,7 @@ import shutil
 import sys
 import threading
 import subprocess
+import warnings
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -912,7 +913,14 @@ def mix_around_vocal(
         if not HAS_LIBROSA:
             raise RuntimeError("librosa is required to stretch the beat while preserving its pitch")
         # One multichannel transform preserves the beat's shared time grid.
-        beat = librosa.effects.time_stretch(beat.T, rate=rate).T
+        # librosa 1.0 passes unused hop_length/n_fft into phase_vocoder and warns.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The `(hop_length|n_fft)` parameter is deprecated",
+                category=FutureWarning,
+            )
+            beat = librosa.effects.time_stretch(beat.T, rate=rate).T
     beat = beat[:frames]
     if len(beat) < frames:
         beat = np.pad(beat, ((0, frames - len(beat)), (0, 0)))

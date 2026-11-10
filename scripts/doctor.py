@@ -11,7 +11,8 @@ capability table is the point.
 """
 from __future__ import annotations
 
-import importlib.util
+import subprocess
+from functools import lru_cache
 import json
 import os
 import platform
@@ -24,10 +25,16 @@ MODELS = ROOT / "models"
 
 
 # ---------------------------------------------------------------- helpers
+@lru_cache(maxsize=None)
 def _findable(module: str) -> bool:
+    """Probe a real import in isolation, including native/ABI dependencies."""
     try:
-        return importlib.util.find_spec(module) is not None
-    except Exception:
+        result = subprocess.run(
+            [sys.executable, "-c", "import importlib,sys; importlib.import_module(sys.argv[1])", module],
+            capture_output=True, text=True, timeout=90,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
 
@@ -49,8 +56,6 @@ def _machine() -> dict:
 
 
 def _gpu() -> bool:
-    if shutil.which("nvidia-smi"):
-        return True
     try:
         if _findable("torch"):
             import torch  # type: ignore

@@ -2,6 +2,9 @@
 # =====================================================
 
 # Core dependencies
+-c constraints_main.txt
+setuptools<81
+resemblyzer>=0.1.4
 gTTS>=2.5.4
 pydub>=0.25.1
 numpy>=2.5.4
