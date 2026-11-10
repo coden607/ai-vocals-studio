@@ -17,6 +17,7 @@ Usage:
 """
 from __future__ import annotations
 import threading
+import warnings
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Callable, Optional
@@ -55,6 +56,37 @@ def _ensure_rvc(progress_cb: Optional[_ProgressCB] = None) -> bool:
     try:
         if progress_cb:
             progress_cb('Loading RVC v2 engine…', 5)
+        # Upstream sidecars warn on import. The checkpoints are local and trusted.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"distutils Version classes are deprecated",
+            category=DeprecationWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"pkg_resources is deprecated as an API",
+        )
+        try:
+            import torch
+            torch.backends.nnpack.set_flags(False)
+        except Exception:
+            pass
+        # fairseq/torch emit these while loading trusted local HuBERT weights.
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*weights_only.*",
+            category=FutureWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*`torch\.nn\.utils\.weight_norm` is deprecated.*",
+            category=FutureWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r".*`torch\.jit\.script` is deprecated.*",
+            category=FutureWarning,
+        )
         from rvc_python.infer import RVCInference as _RVC  # type: ignore
         _rvc_module = _RVC
         HAS_RVC = True

@@ -4,7 +4,7 @@ AI Vocals Studio Pro v4.0  — Maximum Effects Edition
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
-import os, json, threading, time, math, random, shutil, subprocess, sys, tempfile
+import os, json, threading, time, math, random, shutil, subprocess, sys, tempfile, warnings
 from pathlib import Path
 import numpy as np
 import soundfile as sf
@@ -1710,7 +1710,13 @@ class StudioPro:
             if pitch!=0:
                 samples=librosa.effects.pitch_shift(samples,sr=sr,n_steps=float(pitch))
             if speed!=1.0:
-                samples=librosa.effects.time_stretch(samples,rate=float(speed))
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=r"The `(hop_length|n_fft)` parameter is deprecated",
+                        category=FutureWarning,
+                    )
+                    samples=librosa.effects.time_stretch(samples,rate=float(speed))
             samples=np.clip(samples*32767,-32768,32767).astype(np.int16)
             audio=AudioSegment(samples.tobytes(),frame_rate=sr,sample_width=2,channels=1)
         else:

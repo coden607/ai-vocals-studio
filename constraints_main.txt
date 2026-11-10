@@ -1,0 +1,3 @@
+# Compatibility constraint for resemblyzer/webrtcvad and pyworld, which
+# still import pkg_resources. Keep legacy RVC dependencies in their sidecar.
+setuptools<81

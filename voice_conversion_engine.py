@@ -24,9 +24,18 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import warnings
+
 import numpy as np
 import librosa
 import soundfile as sf
+
+# pyworld still imports deprecated pkg_resources at import time.
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API",
+    category=DeprecationWarning,
+)
 
 try:
     import pyworld as pw
@@ -35,7 +44,6 @@ except Exception:  # pragma: no cover - fallback when pyworld missing
     pw = None
     WORLD_OK = False
 
-import warnings
 warnings.filterwarnings('ignore')
 
 try:

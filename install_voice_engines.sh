@@ -38,11 +38,12 @@ fi
 
 echo "Installing Demucs, Qwen3-TTS, speaker verification, and app dependencies..."
 ensure_pip "$MAIN_PY"
-"$MAIN_PY" -m pip install --upgrade pip
+"$MAIN_PY" -m pip install --upgrade pip 'setuptools<81' wheel
 if [ "$HAS_NVIDIA" = "0" ]; then
   "$MAIN_PY" -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 fi
-"$MAIN_PY" -m pip install -r requirements_minimal.txt resemblyzer
+"$MAIN_PY" -m pip install --upgrade --upgrade-strategy eager -r requirements_minimal.txt
+"$MAIN_PY" -m pip check
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "ffmpeg is required for compressed audio formats. Install it with your system package manager." >&2
@@ -92,8 +93,11 @@ if [ "${INSTALL_TRAINING_SIDECARS:-1}" != "0" ]; then
 
       uv python install 3.10
       [ -x venv_rvc_engines/bin/python ] || uv venv --python 3.10 venv_rvc_engines
-      uv pip install --python venv_rvc_engines/bin/python --upgrade pip "setuptools<81" wheel
-      uv pip install --python venv_rvc_engines/bin/python -r requirements_rvc_sidecar.txt
+      # rvc-python pins OmegaConf 2.0.6, whose legacy metadata pip 24.1+
+      # rejects. Keep this compatibility toolchain isolated from the app.
+      ensure_pip venv_rvc_engines/bin/python
+      venv_rvc_engines/bin/python -m pip install --upgrade 'pip<24.1' "setuptools<81" wheel
+      venv_rvc_engines/bin/python -m pip install -r requirements_rvc_sidecar.txt
       printf '%s\n' "venv_rvc_engines/bin/python" > .rvc_engine_sidecar
     else
       SIDECAR_PY="$(command -v python3.11 || command -v python3.10)"
@@ -103,7 +107,7 @@ if [ "${INSTALL_TRAINING_SIDECARS:-1}" != "0" ]; then
       printf '%s\n' "venv_xtts_engines/bin/python" > .xtts_engine_sidecar
 
       [ -x venv_rvc_engines/bin/python ] || "$SIDECAR_PY" -m venv venv_rvc_engines
-      venv_rvc_engines/bin/python -m pip install --upgrade pip "setuptools<81" wheel
+      venv_rvc_engines/bin/python -m pip install --upgrade 'pip<24.1' "setuptools<81" wheel
       venv_rvc_engines/bin/python -m pip install -r requirements_rvc_sidecar.txt
       printf '%s\n' "venv_rvc_engines/bin/python" > .rvc_engine_sidecar
     fi
