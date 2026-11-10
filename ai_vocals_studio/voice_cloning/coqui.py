@@ -20,7 +20,14 @@ def _ensure_model_downloaded():
         raise FileNotFoundError(
             f"Coqui model directory not found at {model_dir}. Run scripts/download_voice_models.py"
         )
-    return str(model_dir)
+    # Find a .pth checkpoint file
+    checkpoint = next(model_dir.glob("*.pth"), None)
+    if checkpoint is None:
+        raise FileNotFoundError(f"No .pth checkpoint found in {model_dir}")
+    # Find a config.json (or any .json) file
+    config_files = list(model_dir.glob("*.json"))
+    config_path = config_files[0] if config_files else None
+    return str(model_dir), str(checkpoint), str(config_path) if config_path else None
 
 def clone(source_wav: str, reference_wav: str, output_path: str) -> str:
     """Run Coqui TTS voice conversion.
@@ -28,7 +35,7 @@ def clone(source_wav: str, reference_wav: str, output_path: str) -> str:
     Coqui does not provide a direct voice‑conversion API, but we can approximate
     cloning by extracting speaker embeddings from ``reference_wav`` (using the
     built‑in ``speaker_encoder``) and then synthesizing the transcribed text of the
-    source audio.  This mimics the behaviour of ElevenLabs where a reference voice
+    source audio. This mimics the behaviour of ElevenLabs where a reference voice
     shapes the TTS output.
     """
     try:
@@ -41,11 +48,14 @@ def clone(source_wav: str, reference_wav: str, output_path: str) -> str:
             "`pip install TTS` or the extra `voice-clone[coqui]`."
         ) from exc
 
-    model_dir = _ensure_model_downloaded()
+    model_dir, checkpoint_path, config_path = _ensure_model_downloaded()
 
-    # Load the TTS model – we assume a single .pth checkpoint and a config.json
-    # inside the model directory.  The TTS class can autodetect them.
-    tts = TTS(model_path=model_dir, progress_bar=False, gpu=False)
+    # Load the TTS model; if a config file is available, pass it to avoid the unknown config error
+    if config_path:
+        tts = TTS(model_path=checkpoint_path, config_path=config_path, progress_bar=False, gpu=False)
+    else:
+        # Let TTS infer the config; it will raise if missing, which we catch below
+        tts = TTS(model_path=checkpoint_path, progress_bar=False, gpu=False)
 
     # 1️⃣ Transcribe source audio to text using a lightweight ASR (reuse whisper).
     from transformers import pipeline
@@ -67,3 +77,6 @@ def clone(source_wav: str, reference_wav: str, output_path: str) -> str:
     torchaudio.save(output_path, wav_out.squeeze(0).cpu(), tts.output_sample_rate)
 
     return os.path.abspath(output_path)
+
+
+

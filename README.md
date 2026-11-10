@@ -39,6 +39,23 @@ A beautiful, dark-themed AI voice cloning and generation application with advanc
 
 Install the complete local stack once, then launch the desktop app:
 
+### CLI Usage
+
+- Run the service wrapper: [`aivoc`](file:///usr/local/bin/aivoc)
+- Test with a WAV file (self‑signed TLS):
+  ```bash
+  aivoc --insecure test /path/to/file.wav "hello world"
+  ```
+- HTTPS endpoint (self‑signed): <https://voice-134-122-113-44.sslip.io/voice_on_song>
+- Health check: <https://voice-134-122-113-44.sslip.io/health>
+
+---
+
+1. **Run the Application**:
+   ```bash
+   python app_modern.py
+   ```
+
 ```bash
 ./install.sh
 ./run.sh
