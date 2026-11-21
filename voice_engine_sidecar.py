@@ -70,6 +70,7 @@ def cmd_rvc(ns: argparse.Namespace) -> dict:
         ns.input,
         ns.output,
         pitch_shift=0,
+        f0_method=ns.f0_method,
         index_rate=ns.index_rate,
         progress_cb=_progress,
     )
@@ -127,6 +128,9 @@ def _build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--output", required=True, help="destination WAV path")
     pr.add_argument("--models-dir", default="models", help="models root (default: models)")
     pr.add_argument("--index-rate", type=float, default=.75, help="RVC retrieval blend (0 to 1)")
+    pr.add_argument("--f0-method", default="rmvpe",
+                    choices=["rmvpe", "harvest", "crepe", "pm", "dio"],
+                    help="pitch tracker; rmvpe is best quality, pm/harvest need far less RAM/CPU")
     return parser
 
 
