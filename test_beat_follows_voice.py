@@ -97,7 +97,7 @@ def test_the_beat_is_transposed_by_the_same_interval_as_the_voice(tmp_path):
 
 def test_a_negligible_beat_shift_leaves_the_original_file_alone(tmp_path):
     inst = tmp_path / "instrumental.wav"
-    _tone(inst, 22050, 0.5, 110.0)
+    _tone(inst, sr, 0.5, 110.0)
     out_path, applied = sc.match_instrumental_to_voice(inst, 0.0, tmp_path / "beat.wav")
     assert applied == 0.0
     assert Path(out_path) == inst, "an unshifted beat must not be resynthesised"
@@ -242,9 +242,10 @@ def test_rvc_receives_the_pitch_decision_instead_of_a_hardcoded_zero(tmp_path, m
             captured["models_dir"] = models_dir
 
         def convert(self, name, src, dst, pitch_shift=0, progress_cb=None,
-                    index_rate=None):
+                    index_rate=None, f0_method="rmvpe"):
             captured["pitch_shift"] = pitch_shift
             captured["index_rate"] = index_rate
+            captured["f0_method"] = f0_method
             sf.write(Path(dst), np.zeros(1000, dtype=np.float32), 22050)
             return True, "RVC"
 
