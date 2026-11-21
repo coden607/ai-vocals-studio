@@ -318,7 +318,7 @@ After an authorized RVC model/profile has been created, replace the original voc
 
 ```bash
 python song_pipeline_cli.py replace input_song.wav \
-  --profile models/voices/pacaveli/profile.json \
+  --profile models/voices/pacaveli/voice_profile.json \
   --output-dir output/pacaveli_song \
   --separation demucs \
   --require-neural \
