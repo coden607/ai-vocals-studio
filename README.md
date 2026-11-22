@@ -4,6 +4,34 @@
 
 # 🎤 AI Vocals Studio - Modern Edition
 
+<!-- showcase:start -->
+**Voice-over and vocal tooling: a hosted Vercel front door for authorized voice cloning, plus local neural engines for heavier work.**
+
+[![Live demo](https://img.shields.io/badge/live_demo-ai--vocals--studio.vercel.app-2ea44f?logo=vercel)](https://ai-vocals-studio.vercel.app) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+![AI Vocals Studio live demo screenshot](docs/screenshot.png)
+
+**Live demo:** https://ai-vocals-studio.vercel.app
+
+### Highlights
+
+- Upload authorized voice samples and generate a cloned voice-over from the hosted app (ElevenLabs instant voice cloning and TTS)
+- Supabase-backed upload storage and job queue
+- Local or worker engines: Qwen3-TTS, XTTS v2, Demucs separation, Seed-VC and RVC conversion
+- CLI and Docker workflows for GPU or no-GPU machines
+
+**Tech stack:** Python, PyTorch-based voice engines, Vercel serverless functions (Node.js), Supabase Storage, ElevenLabs API
+
+**Run locally:**
+
+```bash
+pip install -r requirements_minimal.txt
+# see Quick Start below for CLI and worker options
+```
+
+<!-- showcase:end -->
+
+
 A beautiful, dark-themed AI voice cloning and generation application with advanced features and modern UI.
 
 ## ✨ Features
