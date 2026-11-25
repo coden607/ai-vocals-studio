@@ -16,6 +16,7 @@ Usage:
         ok, err = engine.convert('Pacaveli', 'input.wav', 'output.wav', pitch_shift=0)
 """
 from __future__ import annotations
+import os
 import threading
 import warnings
 from contextlib import nullcontext
@@ -273,10 +274,7 @@ class RvcEngine:
 
                 cb('Converting voice…', 60)
                 with _hubert_checkpoint_context():
-                    self._rvc.infer_file(
-                        str(input_wav),
-                        str(output_wav),
-                    )
+                    self._infer_file(input_wav, output_wav, progress_cb=cb)
         except Exception as e:
             return False, f'RVC inference error: {e}'
 
@@ -294,6 +292,77 @@ class RvcEngine:
 
         cb('Done!', 100)
         return True, ''
+
+    # ── Chunked inference (bounded memory) ───────────────────────
+
+    def _infer_file(self, input_wav, output_wav, progress_cb=None) -> None:
+        """Run rvc-python on a file, chunking long audio so peak memory stays
+        bounded. The VITS generator in rvc-python synthesizes the whole clip
+        in one pass, so RAM grows linearly with duration and long songs get
+        OOM-killed on modest CPU hosts. Splitting into overlapping chunks
+        with a short crossfade keeps quality while capping memory.
+
+        Chunk length comes from RVC_CHUNK_SECONDS (default 10); audio shorter
+        than 1.5x that converts in a single pass exactly as before.
+        """
+        import numpy as np
+        import soundfile as sf
+
+        chunk_s = float(os.environ.get('RVC_CHUNK_SECONDS', '10') or 10)
+        if chunk_s < 2:
+            chunk_s = 2.0
+        try:
+            info = sf.info(str(input_wav))
+        except Exception:
+            info = None
+        if info is None or info.duration <= chunk_s * 1.5 or info.frames <= 0:
+            self._rvc.infer_file(str(input_wav), str(output_wav))
+            return
+
+        audio, sr = sf.read(str(input_wav), dtype='float32', always_2d=True)
+        mono = audio.mean(axis=1)
+        overlap_s = min(0.5, chunk_s * 0.1)
+        chunk_n = int(chunk_s * sr)
+        overlap_n = int(overlap_s * sr)
+        hop = chunk_n - overlap_n
+
+        import tempfile
+        cb = progress_cb or _noop
+        pieces: list[np.ndarray] = []
+        out_sr: Optional[int] = None
+        starts = list(range(0, max(1, len(mono) - overlap_n), hop))
+        with tempfile.TemporaryDirectory(prefix='rvc_chunks_') as tmp:
+            for i, start in enumerate(starts):
+                segment = mono[start:start + chunk_n]
+                if segment.size == 0:
+                    continue
+                in_path = Path(tmp) / f'chunk_{i:04d}.wav'
+                out_path = Path(tmp) / f'chunk_{i:04d}_out.wav'
+                sf.write(str(in_path), segment, sr)
+                cb(f'Converting chunk {i + 1}/{len(starts)}…',
+                   60 + int(35 * i / max(1, len(starts))))
+                self._rvc.infer_file(str(in_path), str(out_path))
+                piece, piece_sr = sf.read(str(out_path), dtype='float32')
+                out_sr = piece_sr
+                pieces.append(piece)
+
+        if not pieces or out_sr is None:
+            raise RuntimeError('RVC produced no chunk output')
+
+        overlap_out = int(overlap_s * out_sr)
+        if len(pieces) == 1 or overlap_out <= 0:
+            merged = np.concatenate(pieces)
+        else:
+            merged = pieces[0]
+            fade = np.linspace(0.0, 1.0, overlap_out, dtype=np.float32)
+            for piece in pieces[1:]:
+                n = min(overlap_out, len(merged), len(piece))
+                if n <= 0:
+                    merged = np.concatenate([merged, piece])
+                    continue
+                blended = merged[-n:] * (1.0 - fade[:n]) + piece[:n] * fade[:n]
+                merged = np.concatenate([merged[:-n], blended, piece[n:]])
+        sf.write(str(output_wav), merged.astype(np.float32), out_sr)
 
 
 # ── Utilities ─────────────────────────────────────────────────────

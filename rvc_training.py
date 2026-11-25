@@ -134,6 +134,11 @@ def import_rvc_model(
         "rvc_index": target_index.name if target_index else None,
         "methods": methods,
     })
+    # Conversion resolves the model through the profile's name + voice_dir
+    # (see song_converter.convert_vocals), so an imported profile must point
+    # back at the directory the artifacts were just copied into.
+    profile.setdefault("name", target_dir.name)
+    profile["voice_dir"] = str(target_dir)
     profile_path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
     return profile
 

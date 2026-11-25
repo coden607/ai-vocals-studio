@@ -706,6 +706,15 @@ def convert_vocals(
         if cand.exists() and cand.stat().st_size > 10_000:
             rvc_model = cand
 
+    # Pitch tracker for RVC: rmvpe is the quality default, but it loads a
+    # second large model and harvest is extremely slow on CPU. Low-memory
+    # hosts can pick a lighter tracker via the profile or the environment.
+    f0_method = str(
+        profile.get("rvc_f0_method")
+        or os.environ.get("RVC_F0_METHOD", "")
+        or "rmvpe"
+    ).lower()
+
     if rvc_model is not None:
         try:
             from rvc_engine import RvcEngine
@@ -715,6 +724,7 @@ def convert_vocals(
             ok, msg = engine.convert(
                 name, vocals_path, out_path,
                 pitch_shift=int(round(pitch_steps or 0.0)),
+                f0_method=f0_method,
                 index_rate=index_rate, progress_cb=cb,
             )
             if ok:
@@ -734,6 +744,7 @@ def convert_vocals(
                 "--output", str(out_path),
                 "--models-dir", str(voice_dir.parent),
                 "--index-rate", str(index_rate),
+                "--f0-method", f0_method,
             ])
             cb("RVC sidecar conversion complete", 100)
             return True, "RVC neural voice conversion (sidecar)"
